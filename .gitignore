@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+_live/
+_edit_history/
+.edit-*.tmp
+*.aux
+*.log
+*.synctex.gz
+.DS_Store

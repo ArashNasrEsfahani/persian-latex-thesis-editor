@@ -1,0 +1,16 @@
+{
+  "main": "main.tex",
+  "title": "Bilingual example / نمونهٔ دوزبانه",
+  "engine": "xelatex",
+  "ui": "en",
+  "order": ["main.tex", "intro.tex", "english.tex", "hints.tex"],
+  "names": {
+    "main.tex": "Main file",
+    "intro.tex": "Persian intro",
+    "english.tex": "English section",
+    "hints.tex": "Hints demo"
+  },
+  "extensions": [".tex", ".bib"],
+  "outdir": "_live",
+  "hints": ["fa-plain-persian"]
+}

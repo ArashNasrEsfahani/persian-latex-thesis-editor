@@ -1,0 +1,21 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{amsmath}
+\usepackage{xepersian}
+% first Persian font that is installed; install Vazirmatn for the screenshots' look
+\IfFontExistsTF{Vazirmatn}{\settextfont{Vazirmatn}}{%
+  \IfFontExistsTF{XB Zar}{\settextfont{XB Zar}}{%
+    \IfFontExistsTF{Amiri}{\settextfont{Amiri}}{\settextfont{DejaVu Sans}}}}
+\setlatintextfont{Latin Modern Roman}
+
+\title{نمونهٔ دوزبانه \lr{(Bilingual Example)}}
+\author{ویرایشگر زندهٔ \lr{RTL LaTeX}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\input{intro}
+\input{english}
+\input{hints}
+
+\end{document}

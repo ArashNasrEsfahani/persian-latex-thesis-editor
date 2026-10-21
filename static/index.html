@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RTL LaTeX Live Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "@codemirror/state": "https://esm.sh/@codemirror/state@6.4.1",
+    "@codemirror/view": "https://esm.sh/@codemirror/view@6.26.3?deps=@codemirror/state@6.4.1",
+    "@codemirror/commands": "https://esm.sh/@codemirror/commands@6.5.0?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3",
+    "@codemirror/search": "https://esm.sh/@codemirror/search@6.5.6?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3",
+    "@codemirror/language": "https://esm.sh/@codemirror/language@6.10.1?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3",
+    "@codemirror/legacy-modes/mode/stex": "https://esm.sh/@codemirror/legacy-modes@6.4.0/mode/stex?deps=@codemirror/language@6.10.1,@codemirror/state@6.4.1,@codemirror/view@6.26.3",
+    "@lezer/highlight": "https://esm.sh/@lezer/highlight@1.2.0",
+    "pdfjs": "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs"
+  }
+}
+</script>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="title" id="appTitle">RTL LaTeX Live Editor</div>
+    <button id="btnSave" class="btn" data-i18n="save" data-i18n-title="saveTip" title="Ctrl+S">Save</button>
+    <button id="btnCompile" class="btn primary" data-i18n-title="compileTip" title="Ctrl+Enter">
+      <span id="spin" class="spin hidden"></span><span id="compileLabel">Compile</span>
+    </button>
+    <span id="compileStatus" class="cstatus"></span>
+    <label class="chk"><input type="checkbox" id="chkOnSave"> <span data-i18n="compileOnSave">Compile on save</span></label>
+    <label class="chk"><input type="checkbox" id="chkLint" checked> <span data-i18n="showHints">Show phrase hints</span></label>
+    <span class="grow"></span>
+    <button id="btnShow" class="btn" data-i18n="showInPdf" title="Ctrl+J">Show in PDF</button>
+    <button id="btnHistory" class="btn" data-i18n="history">History</button>
+    <button id="btnLang" class="btn" title="English / فارسی">فا</button>
+    <button id="btnTheme" class="btn" data-i18n-title="themeTip" title="Light / dark">◐</button>
+  </header>
+
+  <div id="banner" class="banner hidden"></div>
+
+  <main class="main" id="main">
+    <aside class="files" id="paneFiles"><ul id="fileList"></ul></aside>
+    <div class="resizer" data-target="paneFiles" data-side="left"></div>
+    <section class="editor" id="paneEditor">
+      <div class="edhead"><span id="curName"></span><span id="curDirty" class="dirty hidden">●</span><span id="curMeta" class="meta"></span></div>
+      <div id="cm" class="cmhost" dir="ltr"></div>
+    </section>
+    <div class="resizer" data-target="panePdf" data-side="right"></div>
+    <section class="pdf" id="panePdf">
+      <div class="pdfbar">
+        <button id="zOut" class="btn sm">−</button>
+        <span id="zLabel" class="meta"></span>
+        <button id="zIn" class="btn sm">+</button>
+        <button id="zFit" class="btn sm" data-i18n="fitWidth">Fit width</button>
+        <span id="pageInfo" class="meta"></span>
+      </div>
+      <div id="pdfScroll" class="pdfscroll"><div id="pdfPages"></div><div id="pdfEmpty" class="empty" data-i18n="pdfEmpty">Compile to see the PDF</div></div>
+    </section>
+  </main>
+
+  <section class="drawer collapsed" id="drawer">
+    <div class="drawerbar" id="drawerBar"><span id="drawerTitle" data-i18n="errorsTitle">Compile errors</span><span class="meta" id="drawerCount"></span><span class="grow"></span><span id="drawerArrow">▲</span></div>
+    <div class="drawerbody">
+      <ul id="errList"></ul>
+      <pre id="logTail" dir="ltr"></pre>
+    </div>
+  </section>
+</div>
+
+<div id="histPanel" class="modal hidden">
+  <div class="modalbox">
+    <div class="modalhead"><b data-i18n="historyTitle">History of this file</b><span class="grow"></span><button class="btn sm" id="histClose" data-i18n="close">Close</button></div>
+    <div class="histwrap">
+      <ul id="histList"></ul>
+      <div class="histdiff">
+        <div class="histtools"><button class="btn primary sm hidden" id="histRestore" data-i18n="restore">Restore this version</button><span class="meta" id="histInfo"></span></div>
+        <pre id="histDiff" dir="auto"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
