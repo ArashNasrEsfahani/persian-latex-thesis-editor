@@ -24,6 +24,55 @@ next to the source. The server is a single Python file with no dependencies.
 - **English and Persian UI** with a toggle in the page; light and dark themes; resizable panes.
 - Preserves your files exactly: UTF-8, BOM and CRLF/LF are kept as they were.
 
+### Project and writing tools (Overleaf-style)
+
+- **Project file tree** (left panel, collapsible): every folder and file under the root, with the configured main
+  documents listed first under their friendly names. Open any text file, preview images and PDFs, create files and
+  folders, rename or move (double-click, the context menu, or drag a file onto a folder), and upload by dragging files
+  from the desktop onto the tree or with the upload button. **Delete never deletes**: items go to
+  `<root>/_edit_trash/<timestamp>/…` and the Trash dialog restores them. Renaming a file moves its save history too.
+- **Insert figure**: toolbar button, drag an image into the editor, or paste one from the clipboard. Upload a new
+  image (saved under `uploads`, default `figs/uploads/`, with a cleaned ASCII name and a `-1`, `-2` … suffix instead of
+  overwriting) or pick one from a thumbnail grid of the project's images. Width as a fraction of `\textwidth`, caption,
+  short caption for the list of figures (filled in from the caption until you edit it), label (`fig:` + name, kept
+  unique), placement (`[tbp]`). Inserts `\begin{figure}…\caption[short]{long}\label{…}…\end{figure}` with a live code
+  preview. PNG, JPG, PDF, EPS and SVG (SVG is inserted with `\includesvg`, which needs the `svg` package).
+- **Insert table**: rows × columns grid picker, or paste cells from Excel / LibreOffice / CSV (special characters
+  `& % $ # _ { } ~ ^ \` are escaped), header row, booktabs or `\hline` rules, column alignment, caption with short
+  title, `tab:` label, `[tbp]`.
+- **Formatting toolbar and shortcuts**: bold (`Ctrl+B`), italic (`Ctrl+I`), `\lr{}` for Latin text in a Persian line,
+  section / subsection / subsubsection, bulleted and numbered lists, equation, inline math, footnote, `\cite`, `\ref`,
+  `\href` / `\url`, comment or uncomment lines (`Ctrl+/`). With a selection the button wraps it (and unwraps it the
+  second time). Tooltips in both UI languages.
+- **Autocomplete**: `\ref{`, `\eqref{`, `\autoref{`, `\cref{`, `\pageref{` … list every `\label` with its file and
+  caption or heading; `\cite{` (natbib / biblatex variants, several keys after commas) lists the `.bib` keys with author,
+  year and title; `\includegraphics{` lists the project's images (also relative to `\graphicspath`); `\input{` lists
+  `.tex` files; `\begin{` lists environments and adds the matching `\end{}`; plus common and project-defined commands.
+- **Outline**: chapters, sections and subsections of every file included from the main file (`\input`, `\include`,
+  `\subfile`, `\import`), with figures and tables by their captions; click to jump; the current section is highlighted.
+- **Project-wide search and replace** (`Ctrl+Shift+F`): plain text or regular expression, match case, whole word,
+  results grouped by file with context, replace one / in a file / everywhere with a preview and a confirmation. Every
+  replacement is saved through the normal save path (a history copy, and a refusal if the file changed meanwhile);
+  open files with unsaved edits are saved first. In regular-expression mode `$1`, `${name}` and `$&` refer to the
+  match and backslashes are literal, so LaTeX needs no escaping. `Ctrl+F` / `Ctrl+H` search inside the current file.
+- **Image hover preview** over an `\includegraphics{…}` path.
+- **Word count** of the current file and of the whole document in the status bar (commands, comments, math, labels and
+  citations are not counted; a Persian word with a zero-width non-joiner, such as «می‌شود», counts once).
+- **Compile on save** toggle (remembered) and **Recompile from scratch** (`latexmk -C`, then compile) in the menu next
+  to Compile.
+- **New BibTeX entry** form (type, key suggested from author + year + title, authors, title, year, venue, DOI, URL)
+  appended to a chosen `.bib` file through the normal save path, optionally inserting `\cite{key}` at the cursor.
+- **Command palette** (`Ctrl+Shift+P` or `F1`) listing every action, and the editor remembers the open file and the
+  cursor position in each file.
+
+![Insert figure: upload or pick an image, caption with short title, label, live LaTeX preview](screenshots/05-insert-figure.png)
+
+![Autocomplete for \ref with the label's file and caption](screenshots/06-autocomplete.png)
+
+![Project search with a replacement preview](screenshots/07-project-search.png)
+
+![Insert table from pasted spreadsheet cells](screenshots/08-insert-table.png)
+
 ![Phrase hints](screenshots/02-phrase-hints.png)
 
 ## Requirements
@@ -56,7 +105,17 @@ or drop a `livetex.json` into the project folder (it is picked up automatically)
 (handy when you vendor the editor into a repository). Then open <http://127.0.0.1:8765>.
 
 The server listens on `127.0.0.1` only. Compiled output goes to `<root>/<outdir>/` (default `_live/`), save history to
-`<root>/_edit_history/`; add both to your `.gitignore`.
+`<root>/_edit_history/`, deleted files to `<root>/_edit_trash/`; add all three to your `.gitignore`.
+
+**Which files the outline, completion and project search read.** Files reachable from the main file (through
+`\input`, `\include`, `\subfile`, `\import`) always count. Other `.tex` and `.bib` files are added too, except those in
+folders whose names start with `_` (drafts, archives, build folders); project search has a switch to include those.
+
+**Safety.** Every path from the browser is checked to stay inside the root (no `..`, absolute paths, drive letters,
+hidden or reserved names, or links that lead outside), and the output, history and trash folders cannot be written.
+Writes are atomic (temporary file, then replace); uploads are limited to 25 MB and to known file types. Write requests
+must come from the editor page itself (an `X-LiveTeX` header and an Origin/Host check), so another web site cannot
+change your files through the local port.
 
 ## Config reference
 
@@ -72,7 +131,8 @@ Relative paths are resolved against the folder that holds the config file. Unkno
 | `engine` | `"xelatex"` | `"xelatex"`, `"lualatex"` or `"pdflatex"` |
 | `order` | `[]` | file names listed first, in this order; the rest follow alphabetically |
 | `names` | `{}` | display names, `{"fasl1.tex": "Chapter 1"}` |
-| `extensions` | `[".tex", ".bib"]` | extensions shown in the file list (files are editable by name even if not listed: `.tex .bib .sty .cls .md`) |
+| `extensions` | `[".tex", ".bib"]` | extensions of the root-level files listed under "Documents" (the file tree shows everything; text files with `.tex .bib .sty .cls .md .txt .csv .bst .def .cfg .clo` and similar are editable anywhere in the project) |
+| `uploads` | `"figs/uploads"` | folder (relative to the root) where images uploaded from the Insert figure dialog are saved |
 | `outdir` | `"_live"` | `latexmk -outdir` folder name |
 | `hints` | `[]` | phrase-hint packs: built-in names (`"fa-plain-persian"`) or file paths |
 | `ui` | `"en"` | UI language, `"en"` or `"fa"` (the in-page toggle overrides it for that browser) |
@@ -100,9 +160,15 @@ Example:
 | `Ctrl+S` | save |
 | `Ctrl+Enter` | save and compile |
 | `Ctrl+J` | show the cursor line in the PDF |
-| `Ctrl+F` / `Ctrl+H` | find / find and replace |
+| `Ctrl+F` / `Ctrl+H` | find / find and replace in the current file |
+| `Ctrl+Shift+F` | search and replace in the whole project |
+| `Ctrl+B` / `Ctrl+I` | bold / italic (wraps the selection; again to unwrap) |
+| `Ctrl+/` | comment or uncomment the selected lines |
+| `Ctrl+Space` | open the completion list |
+| `Ctrl+Shift+P` or `F1` | command palette |
 | `Ctrl+Z`, `Ctrl+Shift+Z` | undo / redo |
 | double-click in the PDF | jump to the source line |
+| double-click a file in the tree | rename or move it |
 
 On macOS use `Cmd` in place of `Ctrl`.
 
@@ -135,16 +201,19 @@ The UI switches between English and Persian (right-to-left layout):
 python selftest.py
 ```
 
-Covers config loading and validation, path safety, CRLF/LF/BOM round trips, the 409 conflict, history, log and SyncTeX
-parsing, hint packs, and that every UI string exists in both languages. It needs no TeX installation and works only on
-temporary folders.
+Covers config loading and validation, path safety (traversal, protected folders, links leaving the root), CRLF/LF/BOM
+round trips, the 409 conflict and concurrent saves, history, the file tree, new file / folder, rename with history,
+trash and restore, upload naming and limits, the label / citation / outline index, word count, project search and
+replace, BibTeX entries, log and SyncTeX parsing, hint packs, the HTTP guards, and that every UI string exists in both
+languages. If `node` is installed it also checks the browser-side LaTeX helpers (`static/latex-tools.js`). It needs no
+TeX installation and works only on temporary folders.
 
 ## Limitations
 
 - Single user, local only. There is no login and no collaboration; do not expose the port to a network.
-- Only files directly inside the root folder are listed and editable (no `chapters/ch1.tex` sub-folders yet; `\input`
-  of files in sub-folders compiles fine but those files cannot be opened in the editor).
 - Files must be UTF-8.
+- Caption and other text fields in the dialogs are plain inputs: a LaTeX command inside Persian text can look reordered
+  while you type it there (the code preview under the fields shows it the way the editor does).
 - The error list is parsed from `-file-line-error` output; errors that LaTeX does not attribute to a line show without a location.
 - Compilation uses `latexmk` with the options in `server.py`; custom `latexmkrc` settings in the project still apply.
 - The PDF is redrawn after every compile, not incrementally; very large documents take a moment.
@@ -161,6 +230,11 @@ temporary folders.
 - تاریخچهٔ ذخیره، تشخیص تعارض هنگام تغییر فایل بیرون از ویرایشگر، فهرست خطاهای کامپایل.
 - عبارت‌های مشکوک با بستهٔ قابل‌افزودن زیر خط کشیده می‌شوند؛ بستهٔ «فارسی ساده» همراه برنامه است.
 - رابط انگلیسی یا فارسی (کلید `فا` / `EN` در نوار بالا، یا `"ui": "fa"` در پیکربندی).
+- درخت فایل‌های پروژه: ساختن فایل و پوشه، تغییر نام و جابه‌جایی، بارگذاری با کشیدن فایل؛ حذف هیچ‌وقت قطعی نیست و فایل به
+  سطل بازیافت (`_edit_trash`) می‌رود و از همان‌جا برمی‌گردد.
+- افزودن شکل (بارگذاری، کشیدن یا چسباندن تصویر) و جدول (با جدول‌ساز یا چسباندن از Excel) با عنوان کوتاه و برچسب.
+- نوار قالب‌بندی، تکمیل خودکار `\ref` و `\cite` و `\includegraphics` و `\begin`، ساختار سند، جستجو و جایگزینی در کل
+  پروژه، پیش‌نمایش تصویر، شمارش واژه (با نیم‌فاصله درست شمرده می‌شود)، فرم منبع تازهٔ BibTeX و فهرست فرمان‌ها (`Ctrl+Shift+P`).
 
 اجرا:
 

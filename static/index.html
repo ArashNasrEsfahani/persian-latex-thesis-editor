@@ -16,6 +16,7 @@
     "@codemirror/commands": "https://esm.sh/@codemirror/commands@6.5.0?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3",
     "@codemirror/search": "https://esm.sh/@codemirror/search@6.5.6?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3",
     "@codemirror/language": "https://esm.sh/@codemirror/language@6.10.1?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3",
+    "@codemirror/autocomplete": "https://esm.sh/@codemirror/autocomplete@6.16.0?deps=@codemirror/state@6.4.1,@codemirror/view@6.26.3,@codemirror/language@6.10.1",
     "@codemirror/legacy-modes/mode/stex": "https://esm.sh/@codemirror/legacy-modes@6.4.0/mode/stex?deps=@codemirror/language@6.10.1,@codemirror/state@6.4.1,@codemirror/view@6.26.3",
     "@lezer/highlight": "https://esm.sh/@lezer/highlight@1.2.0",
     "pdfjs": "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs"
@@ -28,27 +29,96 @@
   <header class="topbar">
     <div class="title" id="appTitle">RTL LaTeX Live Editor</div>
     <button id="btnSave" class="btn" data-i18n="save" data-i18n-title="saveTip" title="Ctrl+S">Save</button>
-    <button id="btnCompile" class="btn primary" data-i18n-title="compileTip" title="Ctrl+Enter">
-      <span id="spin" class="spin hidden"></span><span id="compileLabel">Compile</span>
-    </button>
+    <span class="split">
+      <button id="btnCompile" class="btn primary" data-i18n-title="compileTip" title="Ctrl+Enter">
+        <span id="spin" class="spin hidden"></span><span id="compileLabel">Compile</span>
+      </button><button id="btnCompileMore" class="btn primary caret" data-i18n-title="moreMenu" aria-haspopup="menu">▾</button>
+    </span>
     <span id="compileStatus" class="cstatus"></span>
     <label class="chk"><input type="checkbox" id="chkOnSave"> <span data-i18n="compileOnSave">Compile on save</span></label>
     <label class="chk"><input type="checkbox" id="chkLint" checked> <span data-i18n="showHints">Show phrase hints</span></label>
     <span class="grow"></span>
+    <button id="btnPalette" class="btn icon" data-i18n-title="actPalette" title="Ctrl+Shift+P"></button>
     <button id="btnShow" class="btn" data-i18n="showInPdf" title="Ctrl+J">Show in PDF</button>
     <button id="btnHistory" class="btn" data-i18n="history">History</button>
     <button id="btnLang" class="btn" title="English / فارسی">فا</button>
     <button id="btnTheme" class="btn" data-i18n-title="themeTip" title="Light / dark">◐</button>
   </header>
+  <div id="compileMenu" class="menu hidden" role="menu">
+    <button class="menuitem two" data-act="recompile"><b data-i18n="actRecompile">Recompile from scratch</b><span class="meta" data-i18n="actRecompileTip"></span></button>
+  </div>
 
   <div id="banner" class="banner hidden"></div>
 
   <main class="main" id="main">
-    <aside class="files" id="paneFiles"><ul id="fileList"></ul></aside>
-    <div class="resizer" data-target="paneFiles" data-side="left"></div>
+    <aside class="side" id="paneFiles">
+      <div class="sidetabs" role="tablist">
+        <button class="stab active" data-tab="files" data-i18n="tabFiles">Files</button>
+        <button class="stab" data-tab="outline" data-i18n="tabOutline">Outline</button>
+        <button class="stab" data-tab="search" data-i18n="tabSearch" title="Ctrl+Shift+F">Search</button>
+      </div>
+      <div class="sidepanel" id="sideFiles">
+        <div class="treebar">
+          <button class="ibtn" id="tbNewFile" data-i18n-title="newFile"></button>
+          <button class="ibtn" id="tbNewFolder" data-i18n-title="newFolder"></button>
+          <button class="ibtn" id="tbUpload" data-i18n-title="upload"></button>
+          <span class="grow"></span>
+          <button class="ibtn" id="tbRefresh" data-i18n-title="refresh"></button>
+          <button class="ibtn" id="tbCollapse" data-i18n-title="collapseAll"></button>
+          <button class="ibtn" id="tbTrash" data-i18n-title="trash"></button>
+        </div>
+        <div class="sidescroll" id="filesScroll">
+          <div class="sect" data-i18n="docsTitle">Documents</div>
+          <ul id="fileList"></ul>
+          <div class="sect" data-i18n="treeTitle">Project files</div>
+          <div id="tree" class="tree" role="tree"></div>
+          <div class="drophint" data-i18n="dropHere">Drop files to upload them here</div>
+        </div>
+        <input type="file" id="upPick" multiple hidden>
+      </div>
+      <div class="sidepanel hidden" id="sideOutline">
+        <div class="treebar"><label class="chk"><input type="checkbox" id="chkFloats" checked> <span data-i18n="showFloats">Figures and tables</span></label></div>
+        <div class="sidescroll"><div id="outline" class="outline"></div></div>
+      </div>
+      <div class="sidepanel hidden" id="sideSearch">
+        <form id="psForm" class="psform" autocomplete="off">
+          <input id="psQ" type="text" data-i18n-ph="searchPh" dir="auto" spellcheck="false">
+          <input id="psR" type="text" data-i18n-ph="replacePh" dir="auto" spellcheck="false">
+          <div class="psopts">
+            <label class="tog" data-i18n-title="optCase"><input type="checkbox" id="psCase"><span>Aa</span></label>
+            <label class="tog" data-i18n-title="optWord"><input type="checkbox" id="psWord"><span class="uw">ab</span></label>
+            <label class="tog" data-i18n-title="optRegex"><input type="checkbox" id="psRegex"><span>.*</span></label>
+            <label class="tog" data-i18n-title="optAll"><input type="checkbox" id="psAll"><span>_/</span></label>
+            <span class="grow"></span>
+            <button class="btn sm primary" type="submit" data-i18n="searchBtn">Search</button>
+            <button class="btn sm" type="button" id="psReplaceAll" data-i18n="replaceAll">Replace all</button>
+          </div>
+        </form>
+        <div class="meta pssum" id="psSum"></div>
+        <div class="sidescroll"><div id="psResults" class="psresults"></div></div>
+      </div>
+    </aside>
+    <div class="resizer" id="rzSide" data-target="paneFiles" data-side="left"></div>
     <section class="editor" id="paneEditor">
-      <div class="edhead"><span id="curName"></span><span id="curDirty" class="dirty hidden">●</span><span id="curMeta" class="meta"></span></div>
+      <div class="edhead">
+        <button class="ibtn" id="btnSide" data-i18n-title="sideToggle"></button>
+        <span id="curName" dir="auto"></span><span id="curDirty" class="dirty hidden">●</span>
+      </div>
+      <div class="fmtbar" id="fmtBar" role="toolbar"></div>
       <div id="cm" class="cmhost" dir="ltr"></div>
+      <div id="imgView" class="imgview hidden">
+        <div class="imgbar">
+          <b id="imgName" dir="ltr"></b><span class="meta" id="imgInfo"></span><span class="grow"></span>
+          <button class="btn sm primary" id="imgInsert" data-i18n="insertAsFigure">Insert as figure</button>
+          <button class="btn sm" id="imgBack" data-i18n="imgBack">Back to the editor</button>
+        </div>
+        <div class="imgstage" id="imgStage"></div>
+      </div>
+      <div class="statusbar">
+        <span id="stPos"></span><span id="stEol"></span><span class="grow"></span>
+        <span id="stWords" data-i18n-title="stWordsTip"></span>
+        <button id="stProject" class="linkbtn" data-i18n-title="stProjectTip"></button>
+      </div>
     </section>
     <div class="resizer" data-target="panePdf" data-side="right"></div>
     <section class="pdf" id="panePdf">
@@ -85,6 +155,132 @@
   </div>
 </div>
 
+<div id="trashPanel" class="modal hidden">
+  <div class="modalbox dlg mid">
+    <div class="modalhead"><b data-i18n="trashTitle">Trash</b><span class="grow"></span><button class="btn sm" data-close data-i18n="close">Close</button></div>
+    <div class="dlgbody">
+      <p class="meta" data-i18n="trashHint"></p>
+      <ul id="trashList" class="trashlist"></ul>
+    </div>
+  </div>
+</div>
+
+<div id="figDialog" class="modal hidden">
+  <div class="modalbox dlg wide">
+    <div class="modalhead"><b data-i18n="figTitle">Insert figure</b><span class="grow"></span><button class="btn sm" data-close data-i18n="close">Close</button></div>
+    <div class="dlgbody split2">
+      <div class="col">
+        <div class="seg"><button type="button" class="segbtn active" data-figtab="upload" data-i18n="figUploadTab">Upload</button><button type="button" class="segbtn" data-figtab="project" data-i18n="figProjectTab">From the project</button></div>
+        <div id="figUpload">
+          <div id="figDrop" class="dropzone" tabindex="0" role="button"><div data-i18n="figDrop"></div><div class="meta" data-i18n="figTypes"></div></div>
+          <input type="file" id="figPick" accept=".png,.jpg,.jpeg,.pdf,.eps,.svg" hidden>
+          <div class="row hidden" id="figNameRow">
+            <span data-i18n="figSaveAs"></span><input id="figName" dir="ltr" spellcheck="false">
+            <span data-i18n="figFolder"></span><input id="figFolder" dir="ltr" spellcheck="false">
+          </div>
+        </div>
+        <div id="figProject" class="hidden">
+          <input id="figFilter" type="search" data-i18n-ph="figFilter" dir="ltr" class="wide">
+          <div id="figGrid" class="thumbgrid"></div>
+        </div>
+        <div id="figPreview" class="figpreview"></div>
+      </div>
+      <div class="col form">
+        <label class="fld"><span data-i18n="figWidth"></span>
+          <span class="row"><input type="range" id="figWidth" min="0.1" max="1" step="0.05" value="0.8"><output id="figWidthOut" dir="ltr"></output><span class="meta" data-i18n="figWidthUnit"></span></span></label>
+        <label class="fld"><span data-i18n="figCaption"></span><textarea id="figCaption" rows="3" dir="auto"></textarea></label>
+        <label class="fld"><span data-i18n="figShort"></span><input id="figShort" dir="auto"><span class="meta small" data-i18n="figShortHint"></span></label>
+        <div class="row2">
+          <label class="fld"><span data-i18n="figLabel"></span><input id="figLabel" dir="ltr" spellcheck="false"></label>
+          <label class="fld narrow"><span data-i18n="figPlacement"></span><input id="figPlace" dir="ltr" value="tbp" spellcheck="false"></label>
+        </div>
+        <label class="chk"><input type="checkbox" id="figCenter" checked> <span data-i18n="figCenter"></span></label>
+        <div id="figWarn" class="warn hidden"></div>
+        <div class="fld"><span data-i18n="codePreview"></span><pre id="figCode" class="code" dir="ltr"></pre></div>
+      </div>
+    </div>
+    <div class="dlgfoot"><span class="msg" id="figMsg"></span><span class="grow"></span><button class="btn" data-close data-i18n="cancel">Cancel</button><button class="btn primary" id="figOk" data-i18n="insert">Insert</button></div>
+  </div>
+</div>
+
+<div id="tabDialog" class="modal hidden">
+  <div class="modalbox dlg wide">
+    <div class="modalhead"><b data-i18n="tabTitle">Insert table</b><span class="grow"></span><button class="btn sm" data-close data-i18n="close">Close</button></div>
+    <div class="dlgbody split2">
+      <div class="col">
+        <div class="row"><b id="tabSizeOut" dir="ltr"></b><span class="grow"></span>
+          <span data-i18n="tabRows"></span><input type="number" id="tabRows" min="1" max="60" value="3" class="num">
+          <span data-i18n="tabCols"></span><input type="number" id="tabCols" min="1" max="26" value="3" class="num"></div>
+        <div id="tabGrid" class="gridpick" dir="ltr"></div>
+        <label class="fld"><span data-i18n="tabPaste"></span><textarea id="tabPasteBox" rows="5" dir="auto" data-i18n-ph="tabPastePh" spellcheck="false"></textarea><span class="meta small" id="tabDetected"></span></label>
+        <label class="chk"><input type="checkbox" id="tabEscape" checked> <span data-i18n="tabEscape"></span></label>
+      </div>
+      <div class="col form">
+        <label class="fld"><span data-i18n="tabCaption"></span><textarea id="tabCaption" rows="2" dir="auto"></textarea></label>
+        <label class="fld"><span data-i18n="tabShort"></span><input id="tabShort" dir="auto"><span class="meta small" data-i18n="figShortHint"></span></label>
+        <div class="row2">
+          <label class="fld"><span data-i18n="figLabel"></span><input id="tabLabel" dir="ltr" spellcheck="false"></label>
+          <label class="fld narrow"><span data-i18n="figPlacement"></span><input id="tabPlace" dir="ltr" value="tbp" spellcheck="false"></label>
+        </div>
+        <div class="row2">
+          <label class="fld"><span data-i18n="tabAlign"></span><select id="tabAlign"><option value="c" data-i18n="alignC">center</option><option value="l" data-i18n="alignL">left</option><option value="r" data-i18n="alignR">right</option></select></label>
+        </div>
+        <label class="chk"><input type="checkbox" id="tabHeader" checked> <span data-i18n="tabHeader"></span></label>
+        <label class="chk"><input type="checkbox" id="tabBooktabs" checked> <span data-i18n="tabBooktabs"></span></label>
+        <label class="chk"><input type="checkbox" id="tabCenter" checked> <span data-i18n="figCenter"></span></label>
+        <div class="fld"><span data-i18n="codePreview"></span><pre id="tabCode" class="code" dir="ltr"></pre></div>
+      </div>
+    </div>
+    <div class="dlgfoot"><span class="msg" id="tabMsg"></span><span class="grow"></span><button class="btn" data-close data-i18n="cancel">Cancel</button><button class="btn primary" id="tabOk" data-i18n="insert">Insert</button></div>
+  </div>
+</div>
+
+<div id="bibDialog" class="modal hidden">
+  <div class="modalbox dlg wide">
+    <div class="modalhead"><b data-i18n="bibTitle">New BibTeX entry</b><span class="grow"></span><button class="btn sm" data-close data-i18n="close">Close</button></div>
+    <div class="dlgbody split2">
+      <div class="col form">
+        <div class="row2">
+          <label class="fld"><span data-i18n="bibFile"></span><select id="bibFile" dir="ltr"></select></label>
+          <label class="fld"><span data-i18n="bibType"></span><select id="bibType" dir="ltr"></select></label>
+        </div>
+        <label class="fld"><span data-i18n="bibAuthor"></span><input id="bibAuthor" dir="auto" spellcheck="false"></label>
+        <label class="fld"><span data-i18n="bibTitleF"></span><input id="bibTitleIn" dir="auto"></label>
+        <div class="row2">
+          <label class="fld narrow"><span data-i18n="bibYear"></span><input id="bibYear" dir="ltr" inputmode="numeric"></label>
+          <label class="fld"><span><span data-i18n="bibVenue"></span> <span class="meta" id="bibVenueField" dir="ltr"></span></span><input id="bibVenue" dir="auto"></label>
+        </div>
+        <div class="row2">
+          <label class="fld"><span data-i18n="bibDoi"></span><input id="bibDoi" dir="ltr" spellcheck="false"></label>
+          <label class="fld"><span data-i18n="bibUrl"></span><input id="bibUrl" dir="ltr" spellcheck="false"></label>
+        </div>
+        <label class="fld"><span data-i18n="bibKey"></span><input id="bibKey" dir="ltr" spellcheck="false"></label>
+        <label class="chk"><input type="checkbox" id="bibCite"> <span data-i18n="bibInsertCite"></span></label>
+      </div>
+      <div class="col">
+        <div class="fld"><span data-i18n="codePreview"></span><pre id="bibCode" class="code tall" dir="ltr"></pre></div>
+      </div>
+    </div>
+    <div class="dlgfoot"><span class="msg" id="bibMsg"></span><span class="grow"></span><button class="btn" data-close data-i18n="cancel">Cancel</button><button class="btn primary" id="bibOk" data-i18n="bibAdd">Add entry</button></div>
+  </div>
+</div>
+
+<div id="askDialog" class="modal hidden">
+  <div class="modalbox dlg small">
+    <div class="modalhead"><b id="askTitle"></b></div>
+    <div class="dlgbody"><div id="askMsg" class="askmsg"></div><input id="askInput" dir="ltr" class="wide" spellcheck="false"></div>
+    <div class="dlgfoot"><span class="grow"></span><button class="btn" id="askCancel" data-i18n="cancel">Cancel</button><button class="btn primary" id="askOk" data-i18n="ok">OK</button></div>
+  </div>
+</div>
+
+<div id="palette" class="modal top hidden">
+  <div class="palbox">
+    <input id="palInput" data-i18n-ph="palettePh" spellcheck="false" autocomplete="off">
+    <ul id="palList"></ul>
+  </div>
+</div>
+
+<div id="ctxMenu" class="menu hidden" role="menu"></div>
 <div id="toast" class="toast hidden"></div>
 <script type="module" src="/app.js"></script>
 </body>

@@ -1,5 +1,7 @@
 \documentclass[12pt,a4paper]{article}
 \usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
 \usepackage{xepersian}
 % first Persian font that is installed; install Vazirmatn for the screenshots' look
 \IfFontExistsTF{Vazirmatn}{\settextfont{Vazirmatn}}{%
@@ -17,5 +19,12 @@
 \input{intro}
 \input{english}
 \input{hints}
+\input{chapters/results}
+
+\renewcommand{\refname}{\rl{\persianfont منابع}}
+\begin{latin}
+\bibliographystyle{plain}
+\bibliography{refs}
+\end{latin}
 
 \end{document}

@@ -7,3 +7,4 @@ _edit_history/
 *.log
 *.synctex.gz
 .DS_Store
+_edit_trash/

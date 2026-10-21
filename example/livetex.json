@@ -3,12 +3,13 @@
   "title": "Bilingual example / نمونهٔ دوزبانه",
   "engine": "xelatex",
   "ui": "en",
-  "order": ["main.tex", "intro.tex", "english.tex", "hints.tex"],
+  "order": ["main.tex", "intro.tex", "english.tex", "hints.tex", "refs.bib"],
   "names": {
     "main.tex": "Main file",
     "intro.tex": "Persian intro",
     "english.tex": "English section",
-    "hints.tex": "Hints demo"
+    "hints.tex": "Hints demo",
+    "refs.bib": "References"
   },
   "extensions": [".tex", ".bib"],
   "outdir": "_live",

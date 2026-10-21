@@ -1,4 +1,4 @@
-import { EditorState, StateEffect, StateField, Prec } from "@codemirror/state";
+import { EditorState, EditorSelection, StateEffect, StateField, Prec } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection,
          Decoration, ViewPlugin, MatchDecorator, hoverTooltip } from "@codemirror/view";
 import { history, historyKeymap, defaultKeymap, indentWithTab } from "@codemirror/commands";
@@ -6,7 +6,14 @@ import { search, searchKeymap, openSearchPanel, highlightSelectionMatches } from
 import { StreamLanguage, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { stex } from "@codemirror/legacy-modes/mode/stex";
 import { tags as t } from "@lezer/highlight";
+import { startCompletion } from "@codemirror/autocomplete";
 import * as pdfjs from "pdfjs";
+import * as LT from "./latex-tools.js";
+import { ICONS } from "./icons.js";
+import { latexCompletion, imageHover } from "./complete.js";
+import { initTree } from "./tree.js";
+import { initDialogs } from "./dialogs.js";
+import { initSearch } from "./projsearch.js";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs";
 
@@ -29,6 +36,69 @@ const I18N = {
     pickVersion: "Pick a version (red = old version, green = current text)", noVersions: "No versions yet",
     unchangedLines: (n) => "⋯ " + n + " unchanged lines", sameText: "This version is identical to the current text.",
     restored: "Version loaded; save to keep it", suggestion: "Suggestion: ", toggleLang: "فا",
+    tabFiles: "Files", tabOutline: "Outline", tabSearch: "Search", sideToggle: "Show or hide the side panel",
+    docsTitle: "Documents", treeTitle: "Project files", newFile: "New file", newFolder: "New folder", upload: "Upload files",
+    refresh: "Refresh", trash: "Trash", collapseAll: "Collapse all folders", rename: "Rename or move",
+    deleteItem: "Move to trash", open: "Open", copyPath: "Copy path", insertAsFigure: "Insert as figure",
+    newFileHere: "New file here", newFolderHere: "New folder here", uploadHere: "Upload files here",
+    newFilePrompt: "Name of the new file (use / for folders)", newFolderPrompt: "Name of the new folder",
+    renamePrompt: "New name or path", ok: "OK", cancel: "Cancel", insert: "Insert",
+    deleteConfirm: (p) => "Move \u201c" + p + "\u201d to the trash? You can restore it from the trash later.",
+    deleteDirty: "It has unsaved changes; they will be lost.", deleteMain: "This is the main file; compiling will not work until you restore it.",
+    movedToTrash: (p) => p + " moved to the trash", trashTitle: "Trash", trashEmpty: "The trash is empty",
+    trashHint: "Deleted files and folders stay in the _edit_trash folder until you remove them yourself.",
+    restoreItem: "Restore", restoredTo: (p) => "Restored: " + p, restoreExists: "A file or folder with that name already exists. Rename it first.",
+    uploading: "Uploading…", uploaded: (p) => "Uploaded: " + p, uploadRenamed: (a, b) => b + " saved (" + a + " already existed)",
+    tooLarge: (n, mb) => n + " is larger than " + mb + " MB", cannotOpen: "This file type cannot be opened in the editor",
+    exists: "A file or folder with this name already exists", opFailed: "Failed: ", dropHere: "Drop files to upload them here",
+    pathCopied: "Path copied", movedTo: (p) => "Moved to " + p,
+    badExt: "Allowed text files: .tex .bib .sty .cls .md .txt .csv and similar; images can only be uploaded.",
+    badName: "Names cannot start with . or ~ and cannot use \\ : * ? \" < > |",
+    imgBack: "Back to the editor", imgNoPreview: "No preview for this file type", imgNotFound: "Image not found in the project",
+    outlineEmpty: "No sections found. The outline starts at the main file and follows \\input and \\include.",
+    showFloats: "Figures and tables", figureWord: "Figure", tableWord: "Table", secWord: "Section", eqWord: "Equation",
+    customCmd: "defined in the project",
+    searchPh: "Search the project", replacePh: "Replace with", optCase: "Match case", optWord: "Whole word",
+    optRegex: "Regular expression ($1 in the replacement is group 1)", optAll: "Also search folders whose names start with _",
+    searchBtn: "Search", replaceAll: "Replace all", replaceOne: "Replace", replaceInFile: "Replace in file",
+    searchCount: (n, f) => n + (n === "1" ? " match in " : " matches in ") + f + (f === "1" ? " file" : " files"), searchNone: "No matches", searchTrunc: "Only the first matches are shown",
+    replaceConfirm: (n, f) => "Replace " + n + (n === "1" ? " match in " : " matches in ") + f + (f === "1" ? " file" : " files") + "? Each file keeps its old version in History.",
+    replaceTitle: "Replace in the project", replaced: (n, f) => n + " replaced in " + f + (f === "1" ? " file" : " files"),
+    replaceStale: "A file changed in the meantime; the results were refreshed", savingFirst: "Saving the open files first…",
+    badRegex: "Bad regular expression: ",
+    actCompile: "Save and compile", actRecompile: "Recompile from scratch",
+    actRecompileTip: "Delete the build files (latexmk -C) and compile again", moreMenu: "More compile options",
+    actBold: "Bold", actItalic: "Italic", actLr: "Latin text in a Persian line (\\lr)", actSection: "Section",
+    actSubsection: "Subsection", actSubsubsection: "Subsubsection", actItemize: "Bulleted list", actEnumerate: "Numbered list",
+    actEquation: "Equation", actMath: "Inline math", actFootnote: "Footnote", actCite: "Cite a reference (\\cite)",
+    actRef: "Refer to a label (\\ref)", actLink: "Link (\\href or \\url)", actComment: "Comment or uncomment lines",
+    actFigure: "Insert figure", actTable: "Insert table", actBib: "New BibTeX entry", actFind: "Find in this file",
+    actReplace: "Find and replace in this file", actSearchProject: "Search the project", actOutline: "Show the outline",
+    actFiles: "Show the project files", actPalette: "All commands", actLang: "English / Persian interface",
+    palettePh: "Type a command", paletteNone: "No command matches",
+    stPos: (l, c) => "Ln " + l + ", Col " + c, stWords: (n) => n + (n === "1" ? " word" : " words"), stProject: (n) => "project: " + n,
+    stWordsTip: "Words in this file (commands, comments and math are not counted)",
+    stProjectTip: "Words in every file included from the main file. Click to count again.",
+    noTextFile: "Open a .tex file to insert into", inserted: "Inserted",
+    figTitle: "Insert figure", figUploadTab: "Upload", figProjectTab: "From the project",
+    figDrop: "Drop an image here, paste it (Ctrl+V) or click to choose a file", figTypes: "PNG, JPG, PDF, EPS or SVG, up to 25 MB",
+    figSaveAs: "Save as", figFolder: "in folder", figFilter: "Filter images", figNoImages: "No images in the project yet",
+    figWidth: "Width", figWidthUnit: "of the text width", figCaption: "Caption", figShort: "Short caption (list of figures)",
+    figShortHint: "Filled in from the caption until you edit it", figLabel: "Label", figPlacement: "Placement",
+    figCenter: "Center it (\\centering)", figPickFirst: "Choose an image first", codePreview: "LaTeX code",
+    figSvgWarn: "SVG needs \\usepackage{svg}, Inkscape and --shell-escape; it is inserted with \\includesvg.",
+    figEpsWarn: "EPS works with XeLaTeX and LuaLaTeX; pdfLaTeX converts it with epstopdf.", labelTaken: "This label is already used",
+    tabTitle: "Insert table", tabRows: "Rows", tabCols: "Columns", tabSize: (r, c) => r + " × " + c,
+    tabCaption: "Caption", tabShort: "Short caption (list of tables)",
+    tabPaste: "Or paste cells from a spreadsheet (Excel, LibreOffice, CSV)", tabPastePh: "Paste cells here",
+    tabDetected: (r, c) => "Found " + r + " rows and " + c + " columns", tabEscape: "Escape special characters (& % $ # _ { } ~ ^ \\)",
+    tabHeader: "The first row is a header", tabBooktabs: "booktabs rules (\\toprule, \\midrule, \\bottomrule)",
+    tabAlign: "Column alignment", alignL: "left", alignC: "center", alignR: "right",
+    bibTitle: "New BibTeX entry", bibFile: "Add to", bibType: "Type", bibKey: "Key", bibAuthor: "Authors (Last, First and Last, First)",
+    bibTitleF: "Title", bibYear: "Year", bibVenue: "Journal, conference or publisher", bibDoi: "DOI", bibUrl: "URL",
+    bibInsertCite: "Insert \\cite{…} at the cursor", bibAdd: "Add entry", bibAdded: (k, f) => k + " added to " + f,
+    bibDup: "This key already exists", bibNoFile: "The project has no .bib file. Create one first (for example references.bib).",
+    bibNeed: "Key and title are required",
     cmPhrases: {},
   },
   fa: {
@@ -47,34 +117,114 @@ const I18N = {
     pickVersion: "یک نسخه را انتخاب کنید (قرمز = نسخهٔ قدیمی، سبز = متن فعلی)", noVersions: "هنوز نسخه‌ای نیست",
     unchangedLines: (n) => "⋯ " + n + " خط بدون تغییر", sameText: "این نسخه با متن فعلی یکی است.",
     restored: "نسخه بارگذاری شد؛ برای ثبت ذخیره کنید", suggestion: "پیشنهاد: ", toggleLang: "EN",
+    tabFiles: "فایل‌ها", tabOutline: "ساختار", tabSearch: "جستجو", sideToggle: "نمایش یا پنهان کردن پنل کناری",
+    docsTitle: "سندها", treeTitle: "فایل‌های پروژه", newFile: "فایل تازه", newFolder: "پوشهٔ تازه", upload: "بارگذاری فایل",
+    refresh: "تازه‌سازی", trash: "سطل بازیافت", collapseAll: "بستن همهٔ پوشه‌ها", rename: "تغییر نام یا جابه‌جایی",
+    deleteItem: "انتقال به سطل بازیافت", open: "باز کردن", copyPath: "کپی مسیر", insertAsFigure: "افزودن به‌صورت شکل",
+    newFileHere: "فایل تازه در این پوشه", newFolderHere: "پوشهٔ تازه در این پوشه", uploadHere: "بارگذاری فایل در این پوشه",
+    newFilePrompt: "نام فایل تازه (برای پوشه از / استفاده کنید)", newFolderPrompt: "نام پوشهٔ تازه",
+    renamePrompt: "نام یا مسیر تازه", ok: "تأیید", cancel: "انصراف", insert: "درج",
+    deleteConfirm: (p) => "«" + p + "» به سطل بازیافت برود؟ بعداً می‌توانید آن را بازگردانید.",
+    deleteDirty: "تغییرهای ذخیره‌نشدهٔ آن از دست می‌رود.", deleteMain: "این فایل اصلی است؛ تا آن را بازنگردانید کامپایل کار نمی‌کند.",
+    movedToTrash: (p) => "«" + p + "» به سطل بازیافت رفت", trashTitle: "سطل بازیافت", trashEmpty: "سطل بازیافت خالی است",
+    trashHint: "فایل‌ها و پوشه‌های حذف‌شده در پوشهٔ _edit_trash می‌مانند تا خودتان پاکشان کنید.",
+    restoreItem: "بازگردانی", restoredTo: (p) => "بازگردانده شد: " + p, restoreExists: "فایل یا پوشه‌ای با همین نام هست. اول نامش را عوض کنید.",
+    uploading: "در حال بارگذاری…", uploaded: (p) => "بارگذاری شد: " + p, uploadRenamed: (a, b) => b + " ذخیره شد (" + a + " از قبل بود)",
+    tooLarge: (n, mb) => n + " بزرگ‌تر از " + mb + " مگابایت است", cannotOpen: "این نوع فایل در ویرایشگر باز نمی‌شود",
+    exists: "فایل یا پوشه‌ای با همین نام هست", opFailed: "انجام نشد: ", dropHere: "فایل‌ها را این‌جا رها کنید تا بارگذاری شوند",
+    pathCopied: "مسیر کپی شد", movedTo: (p) => "به " + p + " منتقل شد",
+    badExt: "فایل متنی مجاز: ‎.tex .bib .sty .cls .md .txt .csv‎ و مانند این‌ها؛ تصویر را فقط می‌شود بارگذاری کرد.",
+    badName: "نام نباید با . یا ~ شروع شود و نباید این نویسه‌ها را داشته باشد: \\ : * ? \" < > |",
+    imgBack: "برگشت به ویرایشگر", imgNoPreview: "برای این نوع فایل پیش‌نمایشی نیست", imgNotFound: "این تصویر در پروژه پیدا نشد",
+    outlineEmpty: "بخشی پیدا نشد. ساختار از فایل اصلی و فایل‌هایی که با \\input و \\include آمده‌اند خوانده می‌شود.",
+    showFloats: "شکل‌ها و جدول‌ها", figureWord: "شکل", tableWord: "جدول", secWord: "بخش", eqWord: "معادله",
+    customCmd: "تعریف‌شده در پروژه",
+    searchPh: "جستجو در پروژه", replacePh: "جایگزینی با", optCase: "حساس به حروف بزرگ و کوچک", optWord: "فقط کلمهٔ کامل",
+    optRegex: "عبارت منظم (در متن جایگزین، $1 یعنی گروه ۱)", optAll: "جستجو در پوشه‌هایی که نامشان با _ شروع می‌شود هم",
+    searchBtn: "جستجو", replaceAll: "جایگزینی همه", replaceOne: "جایگزینی", replaceInFile: "جایگزینی در فایل",
+    searchCount: (n, f) => n + " مورد در " + f + " فایل", searchNone: "موردی پیدا نشد", searchTrunc: "فقط موردهای اول نمایش داده شده",
+    replaceConfirm: (n, f) => n + " مورد در " + f + " فایل جایگزین شود؟ نسخهٔ قبلی هر فایل در تاریخچه می‌ماند.",
+    replaceTitle: "جایگزینی در پروژه", replaced: (n, f) => n + " مورد در " + f + " فایل جایگزین شد",
+    replaceStale: "یکی از فایل‌ها در این فاصله تغییر کرد؛ نتیجه‌ها تازه شد", savingFirst: "اول فایل‌های باز ذخیره می‌شوند…",
+    badRegex: "عبارت منظم درست نیست: ",
+    actCompile: "ذخیره و کامپایل", actRecompile: "کامپایل از صفر",
+    actRecompileTip: "پاک کردن فایل‌های ساخت (latexmk -C) و کامپایل دوباره", moreMenu: "گزینه‌های بیشتر کامپایل",
+    actBold: "پررنگ", actItalic: "کج", actLr: "متن لاتین در خط فارسی (\\lr)", actSection: "بخش",
+    actSubsection: "زیربخش", actSubsubsection: "زیربخش سطح سوم", actItemize: "فهرست نشانه‌دار", actEnumerate: "فهرست شماره‌دار",
+    actEquation: "معادله", actMath: "ریاضی درون متن", actFootnote: "پانویس", actCite: "ارجاع به منبع (\\cite)",
+    actRef: "ارجاع به برچسب (\\ref)", actLink: "پیوند (\\href یا \\url)", actComment: "کامنت کردن یا برداشتن کامنت",
+    actFigure: "افزودن شکل", actTable: "افزودن جدول", actBib: "منبع تازه (BibTeX)", actFind: "جستجو در این فایل",
+    actReplace: "جستجو و جایگزینی در این فایل", actSearchProject: "جستجو در پروژه", actOutline: "نمایش ساختار سند",
+    actFiles: "نمایش فایل‌های پروژه", actPalette: "همهٔ فرمان‌ها", actLang: "رابط فارسی / انگلیسی",
+    palettePh: "نام فرمان را بنویسید", paletteNone: "فرمانی پیدا نشد",
+    stPos: (l, c) => "سطر " + l + "، ستون " + c, stWords: (n) => n + " واژه", stProject: (n) => "کل پروژه: " + n,
+    stWordsTip: "تعداد واژه‌های این فایل (فرمان‌ها، کامنت‌ها و ریاضی شمرده نمی‌شوند)",
+    stProjectTip: "واژه‌های همهٔ فایل‌هایی که از فایل اصلی آمده‌اند. برای شمارش دوباره کلیک کنید.",
+    noTextFile: "یک فایل .tex باز کنید تا در آن درج شود", inserted: "درج شد",
+    figTitle: "افزودن شکل", figUploadTab: "بارگذاری", figProjectTab: "از فایل‌های پروژه",
+    figDrop: "تصویر را این‌جا رها کنید، بچسبانید (Ctrl+V) یا برای انتخاب فایل کلیک کنید", figTypes: "PNG، JPG، PDF، EPS یا SVG تا ۲۵ مگابایت",
+    figSaveAs: "ذخیره با نام", figFolder: "در پوشهٔ", figFilter: "جستجوی تصویر", figNoImages: "هنوز تصویری در پروژه نیست",
+    figWidth: "عرض", figWidthUnit: "از عرض متن", figCaption: "عنوان شکل", figShort: "عنوان کوتاه (برای فهرست شکل‌ها)",
+    figShortHint: "تا وقتی خودتان ویرایشش نکنید، از روی عنوان پر می‌شود", figLabel: "برچسب", figPlacement: "جای قرار گرفتن",
+    figCenter: "وسط‌چین (\\centering)", figPickFirst: "اول یک تصویر انتخاب کنید", codePreview: "کد LaTeX",
+    figSvgWarn: "SVG به \\usepackage{svg}، برنامهٔ Inkscape و گزینهٔ --shell-escape نیاز دارد و با \\includesvg درج می‌شود.",
+    figEpsWarn: "EPS با XeLaTeX و LuaLaTeX کار می‌کند؛ pdfLaTeX آن را با epstopdf تبدیل می‌کند.", labelTaken: "این برچسب قبلاً به کار رفته",
+    tabTitle: "افزودن جدول", tabRows: "سطر", tabCols: "ستون", tabSize: (r, c) => r + " × " + c,
+    tabCaption: "عنوان جدول", tabShort: "عنوان کوتاه (برای فهرست جدول‌ها)",
+    tabPaste: "یا سلول‌ها را از صفحه‌گسترده بچسبانید (Excel، LibreOffice، CSV)", tabPastePh: "سلول‌ها را این‌جا بچسبانید",
+    tabDetected: (r, c) => r + " سطر و " + c + " ستون پیدا شد", tabEscape: "نویسه‌های ویژه را بی‌اثر کن (⁦& % $ # _ { } ~ ^ \\⁩)",
+    tabHeader: "سطر اول عنوان ستون‌هاست", tabBooktabs: "خط‌های booktabs ‏(\\toprule و \\midrule و \\bottomrule)",
+    tabAlign: "تراز ستون‌ها", alignL: "چپ", alignC: "وسط", alignR: "راست",
+    bibTitle: "منبع تازه (BibTeX)", bibFile: "افزودن به", bibType: "نوع", bibKey: "کلید", bibAuthor: "نویسندگان (Last, First and Last, First)",
+    bibTitleF: "عنوان", bibYear: "سال", bibVenue: "مجله، همایش یا ناشر", bibDoi: "DOI", bibUrl: "نشانی (URL)",
+    bibInsertCite: "درج \\cite{…} در جای مکان‌نما", bibAdd: "افزودن منبع", bibAdded: (k, f) => k + " به " + f + " افزوده شد",
+    bibDup: "این کلید از قبل هست", bibNoFile: "پروژه فایل .bib ندارد. اول یکی بسازید (مثلاً references.bib).",
+    bibNeed: "کلید و عنوان لازم است",
     cmPhrases: { "Find": "جستجو", "Replace": "جایگزین", "next": "بعدی", "previous": "قبلی", "all": "همه",
       "match case": "حساس به حروف", "regexp": "عبارت منظم", "by word": "کلمهٔ کامل", "replace": "جایگزینی",
       "replace all": "جایگزینی همه", "close": "بستن", "Go to line": "رفتن به خط", "go": "برو" },
   },
 };
 let lang = "en";
-const tr = (k, ...a) => { const v = (I18N[lang] || I18N.en)[k]; return typeof v === "function" ? v(...a) : (v == null ? k : v); };
+// In the Persian UI, LaTeX commands inside a label and Latin arguments (file paths, keys) are wrapped in Unicode
+// directional isolates, so "\toprule" or "figs/a.png" keep their left-to-right shape inside a right-to-left sentence.
+const ISO_CMD = /\\[A-Za-z]+\*?(\{[^{}]*\})?/g;
+const isoArg = (x) => (typeof x === "string" && /[A-Za-z]/.test(x) ? "⁨" + x + "⁩" : x);
+const tr = (k, ...a) => {
+  const v = (I18N[lang] || I18N.en)[k];
+  let s = typeof v === "function" ? v(...(lang === "fa" ? a.map(isoArg) : a)) : (v == null ? k : v);
+  if (lang === "fa" && typeof s === "string" && s.includes("\\")) s = s.replace(ISO_CMD, "⁦$&⁩");
+  return s;
+};
 const num = (n) => lang === "fa" ? String(n).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[d]) : String(n);
+const fmtNum = (n) => { const s = Number(n || 0).toLocaleString("en-US"); return lang === "fa" ? num(s).replace(/,/g, "٬") : s; };
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
 let NAMES = {};          // file name -> display name (from the project config)
 let appTitle = "";
+let mainFile = "main.tex";
 const cmPhrases = {};    // one shared object: CodeMirror reads it on every lookup, so switching language updates the search panel
 
 async function api(path, opts) {
-  const r = await fetch(path, opts);
+  opts = opts || {};
+  if (opts.method && opts.method !== "GET") opts.headers = Object.assign({ "X-LiveTeX": "1" }, opts.headers || {});
+  let r;
+  try { r = await fetch(path, opts); } catch (e) { return { status: 0, ok: false, data: { error: String(e) } }; }
   let j = null;
   try { j = await r.json(); } catch {}
   return { status: r.status, ok: r.ok, data: j };
 }
+const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
 function toast(msg) {
   const el = $("toast"); el.textContent = msg; el.classList.remove("hidden");
-  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.add("hidden"), 2200);
+  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.add("hidden"), 2600);
 }
+const errText = (r) => (r && r.data && r.data.error) || (r && r.status) || "?";
 
 /* ------------------------------------------------------------------ language */
+const langHooks = [];
 function applyLang(l, rerender) {
   lang = I18N[l] ? l : "en";
   const root = document.documentElement;
@@ -83,13 +233,16 @@ function applyLang(l, rerender) {
   Object.assign(cmPhrases, I18N[lang].cmPhrases);
   document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = tr(el.dataset.i18n); });
   document.querySelectorAll("[data-i18n-title]").forEach((el) => { el.title = tr(el.dataset.i18nTitle); });
+  document.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.placeholder = tr(el.dataset.i18nPh); });
   $("btnLang").textContent = tr("toggleLang");
   $("appTitle").textContent = appTitle; document.title = appTitle;
   $("histInfo").textContent = tr("pickVersion");
+  buildToolbar();
   if (rerender) {
-    renderFiles(); updateEditorHead(); renderBanner(); updatePageInfo();
+    renderFiles(); updateEditorHead(); renderBanner(); updatePageInfo(); renderStatus();
     if (lastStatus) { setCompileUI(lastStatus); renderErrors(lastStatus); }
     if (pv.doc) $("zLabel").textContent = num(Math.round(pv.scale * 100)) + (lang === "fa" ? "٪" : "%");
+    langHooks.forEach((f) => { try { f(); } catch (e) { console.error(e); } });
   }
 }
 $("btnLang").onclick = () => { applyLang(lang === "fa" ? "en" : "fa", true); store.set("lang", lang); };
@@ -97,11 +250,12 @@ $("btnLang").onclick = () => { applyLang(lang === "fa" ? "en" : "fa", true); sto
 /* ------------------------------------------------------------------ theme */
 function applyTheme(v) { if (v) document.documentElement.setAttribute("data-theme", v); else document.documentElement.removeAttribute("data-theme"); }
 applyTheme(store.get("theme", ""));
-$("btnTheme").onclick = () => {
+function toggleTheme() {
   const dark = document.documentElement.getAttribute("data-theme") === "dark" ||
     (!document.documentElement.getAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches);
   const v = dark ? "light" : "dark"; store.set("theme", v); applyTheme(v);
-};
+}
+$("btnTheme").onclick = toggleTheme;
 
 /* ------------------------------------------------------------------ phrase hints */
 let phrases = [];
@@ -159,18 +313,7 @@ const lintTooltip = hoverTooltip((view, pos) => {
 }, { hoverTime: 250 });
 
 /* ------------------------------------------------------------------ per-line direction */
-// A line is right-to-left when its Persian letters outnumber its Latin ones. LaTeX command names and the arguments of
-// \label / \ref / \cite / \lr / \includegraphics ... do not count, so "\item ربات باید ..." reads RTL and "\section{...}" with a
-// Persian title reads RTL too, while pure markup lines stay LTR.
-const RTL_CH = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/g;
-const LTR_CH = /[A-Za-z]/g;
-function lineDir(text) {
-  const s = text.replace(/(^|[^\\])%.*$/, "$1")
-    .replace(/\\(label|ref|eqref|pageref|cite|citep|citet|includegraphics|input|include|lr|url|href|textlatin)\*?\s*(\[[^\]]*\])?\{[^}]*\}/g, " ")
-    .replace(/\\[A-Za-z@]+\*?/g, " ");
-  const r = (s.match(RTL_CH) || []).length, l = (s.match(LTR_CH) || []).length;
-  return r > 0 && r >= l ? "rtl" : "ltr";
-}
+const lineDir = LT.lineDir;   // shared with the dialogs and the search panel (latex-tools.js)
 const dirDeco = { rtl: Decoration.line({ attributes: { dir: "rtl" } }), ltr: Decoration.line({ attributes: { dir: "ltr" } }) };
 const dirPlugin = ViewPlugin.fromClass(class {
   constructor(v) { this.decorations = this.build(v); }
@@ -217,16 +360,72 @@ const hl = HighlightStyle.define([
   { tag: [t.tagName, t.typeName, t.definition(t.variableName), t.className], color: "var(--tok-def)" },
   { tag: [t.bracket, t.punctuation, t.meta], color: "var(--tok-com)" },
 ]);
-const files = new Map();   // name -> {name, state, savedDoc, sha, eol, diskSha, diskChanged, conflict, loaded}
+const files = new Map();   // project path -> {name, state, savedDoc, sha, eol, diskSha, diskChanged, conflict, loaded}
 let current = null;
 let order = [];
 let view;
+let index = { labels: [], bib: [], images: [], graphicspath: [], outline: [], texfiles: [], bibfiles: [], envs: [], commands: [] };
+let treeMeta = { entries: [], editable: [".tex", ".bib"], images: LT.IMAGE_EXTS, uploads: "figs/uploads", maxUpload: 25 * 1024 * 1024 };
+let imageMode = null;      // project path of the image shown instead of the editor
 
 function isDirty(f) {
-  if (!f) return false;
+  if (typeof f === "string") f = files.get(f);
+  if (!f || !f.loaded) return false;
   const doc = f === current ? view.state.doc : f.state.doc;
   return !doc.eq(f.savedDoc);
 }
+const isEditablePath = (p) => (treeMeta.editable || []).includes(LT.extOf(p));
+
+// shared state and helpers for the other modules (tree, dialogs, search, completion)
+const ctx = {
+  api, post, tr, num, fmtNum, toast, store, LT, ICONS, pdfjs, errText, langHooks,
+  get lang() { return lang; }, get view() { return view; }, get current() { return current; }, files,
+  get index() { return index; }, get tree() { return treeMeta; }, set tree(v) { treeMeta = v; },
+  get order() { return order; }, get names() { return NAMES; }, get appTitle() { return appTitle; }, get main() { return mainFile; },
+  get imageMode() { return imageMode; },
+  isDirty, isEditablePath, openFile, showImage, gotoLine, saveFile, reloadFromContent, renamePath, closePath, insertBlock,
+  refreshIndex, refreshDocs, startCompletion: () => { view.focus(); startCompletion(view); }, renderFiles, uploadFile,
+  renderPdfThumb, countProjectWords,
+  // filled in by the modules
+  refreshTree: async () => {}, renderTree: () => {}, renderOutline: () => {}, openFigure: () => {}, openTable: () => {},
+  openBib: () => {}, openTrash: () => {}, ask: async () => null, confirm: async () => false, prompt: async () => null,
+  focusSearch: () => {}, setSideTab: () => {}, newFile: () => {}, newFolder: () => {}, pickUpload: () => {},
+};
+
+function imageFromClipboard(cd) {
+  if (!cd) return null;
+  const text = cd.getData && cd.getData("text/plain");
+  if (text && text.trim()) return null;              // spreadsheet cells come with a picture too: paste the text
+  for (const it of cd.items || []) {
+    if (it.kind === "file" && /^image\/(png|jpe?g|svg\+xml)$/.test(it.type)) {
+      const blob = it.getAsFile(); if (!blob) continue;
+      const ext = it.type.includes("jpeg") || it.type.includes("jpg") ? "jpg" : it.type.includes("svg") ? "svg" : "png";
+      const d = new Date(), p = (x) => String(x).padStart(2, "0");
+      const stamp = d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "-" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+      return new File([blob], "pasted-" + stamp + "." + ext, { type: it.type });
+    }
+  }
+  return null;
+}
+function moveCursorTo(v, e) { const pos = v.posAtCoords({ x: e.clientX, y: e.clientY }); if (pos != null) v.dispatch({ selection: { anchor: pos } }); }
+const editorEvents = EditorView.domEventHandlers({
+  paste(e) { const f = imageFromClipboard(e.clipboardData); if (!f) return false; e.preventDefault(); ctx.openFigure({ file: f }); return true; },
+  drop(e, v) {
+    const dt = e.dataTransfer; if (!dt) return false;
+    const inner = dt.getData("application/x-livetex-path");
+    if (inner) {
+      e.preventDefault(); moveCursorTo(v, e);
+      if (LT.isImagePath(inner)) ctx.openFigure({ path: inner });
+      else if (/\.tex$/i.test(inner)) insertBlock("\\input{" + inner.replace(/\.tex$/i, "") + "}");
+      return true;
+    }
+    const img = [...(dt.files || [])].find((f) => LT.isImagePath(f.name));
+    if (img) { e.preventDefault(); moveCursorTo(v, e); ctx.openFigure({ file: img }); return true; }
+    return false;
+  },
+});
+const completionExt = latexCompletion(ctx);
+const imageHoverExt = imageHover(ctx);
 function extensions() {
   return [
     lineNumbers(), highlightActiveLine(), highlightActiveLineGutter(), drawSelection(), history(),
@@ -234,56 +433,95 @@ function extensions() {
     EditorState.phrases.of(cmPhrases),
     StreamLanguage.define(stex), syntaxHighlighting(hl),
     search({ top: true }), highlightSelectionMatches(),
-    lintPlugin, lintTooltip, flashField,
+    lintPlugin, lintTooltip, flashField, completionExt, imageHoverExt, editorEvents,
     Prec.highest(keymap.of([
       { key: "Mod-s", run: () => { saveCurrent(false); return true; }, preventDefault: true },
       { key: "Mod-Enter", run: () => { saveCurrent(true); return true; }, preventDefault: true },
       { key: "Mod-j", run: () => { showInPdf(); return true; }, preventDefault: true },
       { key: "Mod-h", run: (v) => { openSearchPanel(v); return true; }, preventDefault: true },
+      { key: "Mod-b", run: () => { runAction("bold"); return true; }, preventDefault: true },
+      { key: "Mod-i", run: () => { runAction("italic"); return true; }, preventDefault: true },
+      { key: "Mod-/", run: () => { runAction("comment"); return true; }, preventDefault: true },
+      { key: "Mod-Shift-f", run: () => { runAction("searchProject"); return true; }, preventDefault: true },
     ])),
     keymap.of([...searchKeymap, ...historyKeymap, ...defaultKeymap, indentWithTab]),
-    EditorView.updateListener.of((u) => { if (u.docChanged || u.selectionSet) updateEditorHead(); if (u.docChanged) renderFiles(); }),
+    EditorView.updateListener.of((u) => {
+      if (u.docChanged || u.selectionSet) { updateEditorHead(); renderStatus(); }
+      if (u.docChanged) { renderFiles(); scheduleWordCount(); if (current && current._wasDirty !== isDirty(current)) { current._wasDirty = isDirty(current); ctx.renderTree(); } }
+      if (u.selectionSet) { scheduleCursorSave(); scheduleOutlineMark(); }
+    }),
   ];
 }
-function makeState(text, f) {
+function makeState(text) {
   return EditorState.create({ doc: text, extensions: extensions() });
 }
 view = new EditorView({ state: EditorState.create({ doc: "", extensions: extensions() }), parent: $("cm") });
 
 function updateEditorHead() {
-  if (!current) return;
+  if (imageMode) { $("curName").textContent = imageMode; $("curDirty").classList.add("hidden"); return; }
+  if (!current) { $("curName").textContent = ""; $("curDirty").classList.add("hidden"); return; }
   $("curName").textContent = (NAMES[current.name] ? NAMES[current.name] + " — " : "") + current.name;
   $("curDirty").classList.toggle("hidden", !isDirty(current));
-  const ln = view.state.doc.lineAt(view.state.selection.main.head).number;
-  $("curMeta").textContent = tr("line", num(ln)) + " · " + current.eol;
 }
+function renderStatus() {
+  if (!current || imageMode) { $("stPos").textContent = ""; $("stEol").textContent = ""; $("stWords").textContent = ""; return; }
+  const h = view.state.selection.main.head, l = view.state.doc.lineAt(h);
+  $("stPos").textContent = tr("stPos", num(l.number), num(h - l.from + 1));
+  $("stEol").textContent = current.eol || "";
+  $("stWords").textContent = current._words != null && /\.tex$/i.test(current.name) ? tr("stWords", fmtNum(current._words)) : "";
+  $("stProject").textContent = projectWords != null ? tr("stProject", fmtNum(projectWords)) : "";
+}
+
+/* ------------------------------------------------------------------ files: open, cursor memory, reload, rename, close */
+const curKey = (name) => "cur:" + appTitle + ":" + name;
+function rememberCursor(f) {
+  if (!f || !f.loaded) return;
+  const st = f === current ? view.state : f.state;
+  const r = st.selection.main;
+  store.set(curKey(f.name), r.anchor + "," + r.head);
+}
+let cursorTimer;
+function scheduleCursorSave() { clearTimeout(cursorTimer); cursorTimer = setTimeout(() => rememberCursor(current), 1200); }
 
 async function loadFile(name) {
   const r = await api("/api/file?path=" + encodeURIComponent(name));
-  if (!r.ok) { toast(tr("readFail")); return null; }
+  if (!r.ok) { toast(tr("readFail") + (r.data && r.data.error ? ": " + r.data.error : "")); return null; }
   const d = r.data;
-  const state = makeState(d.content);
+  let state = makeState(d.content);
+  const saved = store.get(curKey(name), "");
+  if (saved) {
+    const [a, h] = saved.split(",").map((x) => Math.min(Math.max(0, parseInt(x, 10) || 0), state.doc.length));
+    state = state.update({ selection: EditorSelection.single(a, h) }).state;
+  }
   const f = files.get(name) || { name };
-  Object.assign(f, { state, savedDoc: state.doc, sha: d.sha256, diskSha: d.sha256, eol: d.eol, diskChanged: false, conflict: null, loaded: true });
+  Object.assign(f, { state, savedDoc: state.doc, sha: d.sha256, diskSha: d.sha256, eol: d.eol, diskChanged: false, conflict: null, loaded: true, _restore: !!saved, _wasDirty: false });
   files.set(name, f);
   return f;
 }
-async function openFile(name, line) {
+async function openFile(name, line, sel) {
   if (!files.has(name)) files.set(name, { name, loaded: false, eol: "" });
   let f = files.get(name);
-  if (!f.loaded) { f = await loadFile(name); if (!f) return; }
-  if (current && current !== f) current.state = view.state;
+  if (!f.loaded) { f = await loadFile(name); if (!f) return false; }
+  if (current && current !== f) { current.state = view.state; rememberCursor(current); }
+  hideImage();
   current = f;
   view.setState(f.state);
   store.set("lastFile:" + appTitle, name);
-  renderFiles(); updateEditorHead(); renderBanner();
-  if (line) gotoLine(line);
-  else view.focus();
+  renderFiles(); updateEditorHead(); renderBanner(); renderStatus(); ctx.renderTree(); ctx.renderOutline();
+  if (line) gotoLine(line, sel);
+  else {
+    if (f._restore) { f._restore = false; view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: "center" }) }); }
+    view.focus();
+  }
+  current._words = null; countCurrentWords();
+  return true;
 }
-function gotoLine(n) {
+function gotoLine(n, sel) {
   const doc = view.state.doc;
   const l = doc.line(Math.max(1, Math.min(n, doc.lines)));
-  view.dispatch({ selection: { anchor: l.from }, effects: [EditorView.scrollIntoView(l.from, { y: "center" }), flashEffect.of(l.from)] });
+  let anchor = l.from, head = l.from;
+  if (sel && sel.col != null) { anchor = Math.min(l.from + sel.col, doc.length); head = Math.min(anchor + (sel.len || 0), doc.length); }
+  view.dispatch({ selection: { anchor, head }, effects: [EditorView.scrollIntoView(anchor, { y: "center" }), flashEffect.of(l.from)] });
   view.focus();
   clearTimeout(gotoLine._t);
   gotoLine._t = setTimeout(() => view.dispatch({ effects: flashEffect.of(null) }), 1600);
@@ -296,14 +534,337 @@ function replaceDoc(text, keepLine) {
   const l = doc.line(Math.min(ln, doc.lines));
   if (keepLine) view.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: "center" }) });
 }
+// new saved content arrived from the server (project replace, new bib entry): show it as the saved version
+function reloadFromContent(name, content, sha) {
+  const f = files.get(name);
+  if (!f || !f.loaded) { if (f) { f.diskSha = sha; f.diskChanged = false; } return; }
+  if (f === current) { replaceDoc(content, true); f.savedDoc = view.state.doc; }
+  else { f.state = makeState(content); f.savedDoc = f.state.doc; }
+  f.sha = sha; f.diskSha = sha; f.diskChanged = false; f.conflict = null; f._wasDirty = false;
+  renderFiles(); updateEditorHead(); renderBanner(); ctx.renderTree();
+  if (f === current) countCurrentWords();
+}
+function renamePath(oldp, newp) {
+  for (const [k, f] of [...files.entries()]) {
+    let nk = null;
+    if (k === oldp) nk = newp; else if (k.startsWith(oldp + "/")) nk = newp + k.slice(oldp.length);
+    if (nk == null) continue;
+    files.delete(k); f.name = nk; files.set(nk, f);
+    const c = store.get(curKey(k), ""); if (c) store.set(curKey(nk), c);
+  }
+  if (imageMode && (imageMode === oldp || imageMode.startsWith(oldp + "/"))) imageMode = newp + imageMode.slice(oldp.length);
+  if (store.get("lastFile:" + appTitle, "") === oldp) store.set("lastFile:" + appTitle, newp);
+  updateEditorHead(); renderFiles();
+}
+async function closePath(p) {
+  let closedCurrent = false;
+  for (const k of [...files.keys()]) {
+    if (k !== p && !k.startsWith(p + "/")) continue;
+    if (current && current.name === k) closedCurrent = true;
+    files.delete(k);
+  }
+  if (imageMode && (imageMode === p || imageMode.startsWith(p + "/"))) hideImage();
+  if (closedCurrent) {
+    current = null;
+    const next = order.find((n) => n !== p && !n.startsWith(p + "/"));
+    if (next) await openFile(next);
+    else { view.setState(makeState("")); updateEditorHead(); renderStatus(); }
+  }
+}
 
-/* ------------------------------------------------------------------ file list */
+/* ------------------------------------------------------------------ image viewer (shown in place of the editor) */
+function showImage(path) {
+  if (current) { current.state = view.state; rememberCursor(current); }
+  imageMode = path;
+  $("cm").classList.add("hidden"); $("fmtBar").classList.add("disabled"); $("imgView").classList.remove("hidden");
+  $("imgName").textContent = path; $("imgInfo").textContent = "";
+  const stage = $("imgStage"); stage.textContent = "";
+  const ext = LT.extOf(path);
+  const ent = (treeMeta.entries || []).find((e) => e.path === path);
+  const size = ent ? fmtSize(ent.size) : "";
+  if (ext === ".pdf") {
+    const c = document.createElement("canvas"); stage.append(c);
+    renderPdfThumb(path, c, Math.min(900, stage.clientWidth - 40 || 700)).then((d) => { if (d) $("imgInfo").textContent = num(d.w) + " × " + num(d.h) + " pt · " + size; });
+  } else if (ext === ".eps") {
+    const d = document.createElement("div"); d.className = "empty"; d.textContent = tr("imgNoPreview"); stage.append(d);
+    $("imgInfo").textContent = size;
+  } else {
+    const img = document.createElement("img"); img.alt = path;
+    img.src = "/api/raw?path=" + encodeURIComponent(path) + "&v=" + (ent ? ent.mtime : Date.now());
+    img.onload = () => { $("imgInfo").textContent = num(img.naturalWidth) + " × " + num(img.naturalHeight) + " px · " + size; };
+    stage.append(img);
+  }
+  updateEditorHead(); renderStatus(); ctx.renderTree();
+}
+function hideImage() {
+  if (!imageMode) return;
+  imageMode = null;
+  $("imgView").classList.add("hidden"); $("cm").classList.remove("hidden"); $("fmtBar").classList.remove("disabled");
+  $("imgStage").textContent = "";
+  updateEditorHead(); renderStatus(); ctx.renderTree();
+}
+$("imgBack").onclick = () => { hideImage(); view.focus(); };
+$("imgInsert").onclick = () => { const p = imageMode; hideImage(); ctx.openFigure({ path: p }); };
+function fmtSize(n) {
+  if (n == null) return "";
+  const u = lang === "fa" ? ["بایت", "کیلوبایت", "مگابایت"] : ["B", "KB", "MB"];
+  let i = 0, x = n; while (x >= 1024 && i < 2) { x /= 1024; i++; }
+  return num(i ? x.toFixed(1) : String(x)) + " " + u[i];
+}
+ctx.fmtSize = fmtSize;
+// write LaTeX source into `el` the way the editor shows it: per-line direction, commands kept as left-to-right units
+function renderSource(el, text) {
+  el.textContent = "";
+  for (const line of String(text).split("\n")) {
+    const d = document.createElement("div"); d.dir = lineDir(line); d.className = "srcline";
+    appendSource(d, line || "\u00a0");
+    el.append(d);
+  }
+}
+function appendSource(el, text) {
+  for (const seg of LT.cmdSegments(text)) {
+    if (seg.cmd) { const s = document.createElement("span"); s.className = "cmdi"; s.textContent = seg.text; el.append(s); }
+    else el.append(document.createTextNode(seg.text));
+  }
+}
+ctx.renderSource = renderSource;
+ctx.appendSource = appendSource;
+async function renderPdfThumb(path, canvas, maxW) {
+  try {
+    const doc = await pdfjs.getDocument({ url: "/api/raw?path=" + encodeURIComponent(path) }).promise;
+    const page = await doc.getPage(1);
+    const v1 = page.getViewport({ scale: 1 });
+    const scale = Math.min(3, (maxW || 240) / v1.width), dpr = window.devicePixelRatio || 1;
+    const vp = page.getViewport({ scale: scale * dpr });
+    canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
+    canvas.style.width = Math.floor(vp.width / dpr) + "px";
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+    const d = { w: Math.round(v1.width), h: Math.round(v1.height) };
+    doc.destroy();
+    return d;
+  } catch { return null; }
+}
+
+/* ------------------------------------------------------------------ inserting text */
+// Put `text` on its own line(s) at the cursor, indented like the current line; LT.CURSOR marks where the cursor ends.
+function insertBlock(text, inline) {
+  if (imageMode) hideImage();
+  if (!current) { toast(tr("noTextFile")); return false; }
+  const st = view.state, r = st.selection.main, line = st.doc.lineAt(r.from), endLine = st.doc.lineAt(r.to);
+  const indent = /^[ \t]*/.exec(line.text)[0];
+  let s = inline ? text : text.replace(/\n/g, "\n" + indent);
+  if (!inline) {
+    if (st.sliceDoc(line.from, r.from).trim()) s = "\n" + indent + s;
+    if (st.sliceDoc(r.to, endLine.to).trim()) s = s + "\n" + indent;
+  }
+  let c = s.indexOf(LT.CURSOR);
+  if (c < 0) c = s.length; else s = s.slice(0, c) + s.slice(c + 1);
+  view.dispatch({ changes: { from: r.from, to: r.to, insert: s }, selection: { anchor: r.from + c }, scrollIntoView: true, userEvent: "input" });
+  view.focus();
+  return true;
+}
+function toggleWrap(open, close) {
+  if (!current || imageMode) { toast(tr("noTextFile")); return; }
+  const st = view.state;
+  view.dispatch(st.changeByRange((r) => {
+    const before = st.sliceDoc(Math.max(0, r.from - open.length), r.from), sel = st.sliceDoc(r.from, r.to);
+    const after = st.sliceDoc(r.to, r.to + close.length);
+    const plan = LT.wrapPlan(before, sel, after, open, close);
+    if (plan === "unwrap-outer") return { changes: [{ from: r.from - open.length, to: r.from }, { from: r.to, to: r.to + close.length }],
+      range: EditorSelection.range(r.from - open.length, r.to - open.length) };
+    if (plan === "unwrap-inner") return { changes: { from: r.from, to: r.to, insert: sel.slice(open.length, sel.length - close.length) },
+      range: EditorSelection.range(r.from, r.to - open.length - close.length) };
+    return { changes: [{ from: r.from, insert: open }, { from: r.to, insert: close }], range: EditorSelection.range(r.from + open.length, r.to + open.length) };
+  }), { scrollIntoView: true, userEvent: "input" });
+  view.focus();
+}
+function selectionText() { const r = view.state.selection.main; return view.state.sliceDoc(r.from, r.to); }
+function heading(cmd) {
+  const sel = current && !imageMode ? selectionText() : "";
+  if (sel && !sel.includes("\n")) return toggleWrap("\\" + cmd + "{", "}");
+  insertBlock("\\" + cmd + "{" + LT.CURSOR + "}");
+}
+function list(env) {
+  const sel = current && !imageMode ? selectionText() : "";
+  const items = sel.split("\n").filter((l) => l.trim()).map((l) => "  \\item " + l.trim().replace(/^\\item\s*/, ""));
+  insertBlock("\\begin{" + env + "}\n" + (items.length ? items.join("\n") + LT.CURSOR : "  \\item " + LT.CURSOR) + "\n\\end{" + env + "}");
+}
+function refCmd(cmd) {
+  const sel = current && !imageMode ? selectionText() : "";
+  if (sel) return toggleWrap("\\" + cmd + "{", "}");
+  if (insertBlock("\\" + cmd + "{" + LT.CURSOR + "}", true)) setTimeout(() => startCompletion(view), 30);
+}
+function link() {
+  const sel = current && !imageMode ? selectionText() : "";
+  if (/^(https?:\/\/|www\.)\S+$/.test(sel.trim())) return toggleWrap("\\url{", "}");
+  if (sel) return insertBlock("\\href{" + LT.CURSOR + "}{" + sel + "}", true);
+  insertBlock("\\url{" + LT.CURSOR + "}", true);
+}
+function toggleComment() {
+  if (!current || imageMode) { toast(tr("noTextFile")); return; }
+  const st = view.state, nums = new Set();
+  for (const r of st.selection.ranges) {
+    const a = st.doc.lineAt(r.from).number;
+    let b = st.doc.lineAt(r.to).number;
+    if (r.to > r.from && st.doc.lineAt(r.to).from === r.to) b--;
+    for (let n = a; n <= Math.max(a, b); n++) nums.add(n);
+  }
+  const lines = [...nums].sort((x, y) => x - y).map((n) => st.doc.line(n));
+  const plan = LT.commentPlan(lines.map((l) => l.text));
+  const changes = plan.map((p) => p.op === "add" ? { from: lines[p.i].from, insert: "% " } : { from: lines[p.i].from + p.at, to: lines[p.i].from + p.at + p.len });
+  if (changes.length) view.dispatch({ changes, userEvent: "input" });
+  view.focus();
+}
+
+/* ------------------------------------------------------------------ actions: toolbar + command palette + shortcuts */
+const ACTIONS = [
+  { id: "bold", label: "actBold", key: "Ctrl+B", icon: "bold", tb: 1, run: () => toggleWrap("\\textbf{", "}") },
+  { id: "italic", label: "actItalic", key: "Ctrl+I", icon: "italic", tb: 1, run: () => toggleWrap("\\textit{", "}") },
+  { id: "lr", label: "actLr", icon: "lr", tb: 1, text: "lr", run: () => toggleWrap("\\lr{", "}") },
+  { id: "section", label: "actSection", icon: "heading", tb: 2, text: "§", run: () => heading("section") },
+  { id: "subsection", label: "actSubsection", tb: 2, text: "§²", run: () => heading("subsection") },
+  { id: "subsubsection", label: "actSubsubsection", tb: 2, text: "§³", run: () => heading("subsubsection") },
+  { id: "itemize", label: "actItemize", icon: "ul", tb: 3, run: () => list("itemize") },
+  { id: "enumerate", label: "actEnumerate", icon: "ol", tb: 3, run: () => list("enumerate") },
+  { id: "equation", label: "actEquation", icon: "equation", tb: 4, run: () => { const s = current && !imageMode ? selectionText() : ""; insertBlock("\\begin{equation}\n  " + s + LT.CURSOR + "\n\\end{equation}"); } },
+  { id: "math", label: "actMath", icon: "math", tb: 4, run: () => toggleWrap("$", "$") },
+  { id: "footnote", label: "actFootnote", icon: "footnote", tb: 5, run: () => toggleWrap("\\footnote{", "}") },
+  { id: "cite", label: "actCite", icon: "cite", tb: 5, run: () => refCmd("cite") },
+  { id: "ref", label: "actRef", icon: "ref", tb: 5, run: () => refCmd("ref") },
+  { id: "link", label: "actLink", icon: "link", tb: 5, run: link },
+  { id: "comment", label: "actComment", key: "Ctrl+/", icon: "comment", tb: 6, text: "%", run: toggleComment },
+  { id: "figure", label: "actFigure", icon: "image", tb: 7, run: () => ctx.openFigure({}) },
+  { id: "table", label: "actTable", icon: "table", tb: 7, run: () => ctx.openTable() },
+  { id: "bib", label: "actBib", icon: "bib", tb: 7, run: () => ctx.openBib() },
+  { id: "save", label: "save", key: "Ctrl+S", run: () => saveCurrent(false) },
+  { id: "compile", label: "actCompile", key: "Ctrl+Enter", run: () => saveCurrent(true) },
+  { id: "recompile", label: "actRecompile", run: () => recompileClean() },
+  { id: "showInPdf", label: "showInPdf", key: "Ctrl+J", run: () => showInPdf() },
+  { id: "history", label: "history", run: () => openHistory() },
+  { id: "find", label: "actFind", key: "Ctrl+F", run: () => { hideImage(); openSearchPanel(view); } },
+  { id: "replace", label: "actReplace", key: "Ctrl+H", run: () => { hideImage(); openSearchPanel(view); } },
+  { id: "searchProject", label: "actSearchProject", key: "Ctrl+Shift+F", run: () => ctx.focusSearch(current && !imageMode ? selectionText() : "") },
+  { id: "outline", label: "actOutline", run: () => { showSide(true); ctx.setSideTab("outline"); } },
+  { id: "files", label: "actFiles", run: () => { showSide(true); ctx.setSideTab("files"); } },
+  { id: "newFile", label: "newFile", run: () => ctx.newFile() },
+  { id: "newFolder", label: "newFolder", run: () => ctx.newFolder() },
+  { id: "upload", label: "upload", run: () => ctx.pickUpload() },
+  { id: "trash", label: "trash", run: () => ctx.openTrash() },
+  { id: "toggleSide", label: "sideToggle", run: () => showSide(!sideShown()) },
+  { id: "theme", label: "themeTip", run: toggleTheme },
+  { id: "lang", label: "actLang", run: () => $("btnLang").click() },
+];
+const ACT = Object.fromEntries(ACTIONS.map((a) => [a.id, a]));
+function runAction(id) { const a = ACT[id]; if (a) a.run(); }
+function buildToolbar() {
+  const bar = $("fmtBar"); bar.textContent = "";
+  let group = 0;
+  for (const a of ACTIONS.filter((x) => x.tb)) {
+    if (group && a.tb !== group) { const s = document.createElement("span"); s.className = "sep"; bar.append(s); }
+    group = a.tb;
+    const b = document.createElement("button");
+    b.className = "ibtn"; b.type = "button"; b.dataset.act = a.id;
+    b.title = tr(a.label) + (a.key ? " (" + a.key + ")" : "");
+    b.setAttribute("aria-label", tr(a.label));
+    if (a.text) { const s = document.createElement("span"); s.className = "itext"; s.textContent = a.text; b.append(s); }
+    else b.innerHTML = ICONS[a.icon] || "";
+    b.onmousedown = (e) => e.preventDefault();       // keep the editor selection
+    b.onclick = () => a.run();
+    bar.append(b);
+  }
+}
+
+/* command palette (Ctrl+Shift+P or F1) */
+let palSel = 0, palItems = [];
+function openPalette() {
+  $("palette").classList.remove("hidden");
+  const inp = $("palInput"); inp.value = ""; renderPalette(); inp.focus();
+}
+function closePalette() { $("palette").classList.add("hidden"); }
+function renderPalette() {
+  const q = $("palInput").value.trim().toLowerCase();
+  palItems = ACTIONS.filter((a) => {
+    if (!q) return true;
+    const hay = (tr(a.label) + " " + I18N.en[a.label] + " " + I18N.fa[a.label] + " " + a.id).toLowerCase();
+    return q.split(/\s+/).every((w) => hay.includes(w));
+  });
+  palSel = Math.min(palSel, Math.max(0, palItems.length - 1));
+  const ul = $("palList"); ul.textContent = "";
+  if (!palItems.length) { const li = document.createElement("li"); li.className = "meta"; li.textContent = tr("paletteNone"); ul.append(li); return; }
+  palItems.forEach((a, i) => {
+    const li = document.createElement("li");
+    if (i === palSel) li.classList.add("active");
+    const l = document.createElement("span"); l.textContent = tr(a.label);
+    const k = document.createElement("kbd"); k.textContent = a.key || ""; if (!a.key) k.classList.add("hidden");
+    li.append(l, k);
+    li.onmousedown = (e) => { e.preventDefault(); closePalette(); a.run(); };
+    ul.append(li);
+  });
+  const act = ul.querySelector(".active"); if (act) act.scrollIntoView({ block: "nearest" });
+}
+$("palInput").oninput = () => { palSel = 0; renderPalette(); };
+$("palInput").onkeydown = (e) => {
+  if (e.key === "ArrowDown") { palSel = Math.min(palItems.length - 1, palSel + 1); renderPalette(); e.preventDefault(); }
+  else if (e.key === "ArrowUp") { palSel = Math.max(0, palSel - 1); renderPalette(); e.preventDefault(); }
+  else if (e.key === "Enter") { const a = palItems[palSel]; closePalette(); if (a) a.run(); e.preventDefault(); }
+  else if (e.key === "Escape") { closePalette(); view.focus(); e.preventDefault(); e.stopPropagation(); }
+};
+$("palette").addEventListener("mousedown", (e) => { if (e.target === $("palette")) closePalette(); });
+$("btnPalette").innerHTML = ICONS.palette;
+$("btnPalette").onclick = openPalette;
+
+/* compile menu */
+$("btnCompileMore").onclick = (e) => {
+  e.stopPropagation();
+  const m = $("compileMenu"), r = $("btnCompileMore").getBoundingClientRect();
+  m.classList.toggle("hidden");
+  m.style.top = (r.bottom + 4) + "px";
+  m.style.left = Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, r.left)) + "px";
+};
+document.addEventListener("mousedown", (e) => { if (!$("compileMenu").contains(e.target) && e.target !== $("btnCompileMore")) $("compileMenu").classList.add("hidden"); });
+$("compileMenu").querySelectorAll("[data-act]").forEach((b) => { b.onclick = () => { $("compileMenu").classList.add("hidden"); runAction(b.dataset.act); }; });
+
+/* side panel visibility */
+const sideShown = () => !$("paneFiles").classList.contains("hidden");
+function showSide(on) {
+  $("paneFiles").classList.toggle("hidden", !on); $("rzSide").classList.toggle("hidden", !on);
+  store.set("side", on ? "1" : "0");
+}
+$("btnSide").innerHTML = ICONS.side;
+$("btnSide").onclick = () => showSide(!sideShown());
+
+/* ------------------------------------------------------------------ word count */
+let projectWords = null, wcTimer = null, pwTimer = null;
+function scheduleWordCount() { clearTimeout(wcTimer); wcTimer = setTimeout(countCurrentWords, 900); }
+async function countCurrentWords() {
+  const f = current;
+  if (!f || !/\.tex$/i.test(f.name)) { renderStatus(); return; }
+  const r = await post("/api/wordcount", { text: view.state.doc.toString() });
+  if (r.ok && f === current) { f._words = r.data.words; renderStatus(); }
+}
+function countProjectWords() {
+  clearTimeout(pwTimer);
+  pwTimer = setTimeout(async () => { const r = await api("/api/wordcount"); if (r.ok) { projectWords = r.data.total; renderStatus(); } }, 300);
+}
+$("stProject").onclick = countProjectWords;
+
+/* ------------------------------------------------------------------ index (labels, citations, outline, images) */
+let idxTimer = null;
+function refreshIndex() {
+  clearTimeout(idxTimer);
+  idxTimer = setTimeout(async () => {
+    const r = await api("/api/index");
+    if (r.ok) { index = r.data; ctx.renderOutline(); }
+  }, 250);
+}
+
+/* ------------------------------------------------------------------ main documents list */
 function renderFiles() {
   const ul = $("fileList"); ul.textContent = "";
   for (const name of order) {
     const f = files.get(name);
     const li = document.createElement("li");
-    if (current && current.name === name) li.classList.add("active");
+    if (current && current.name === name && !imageMode) li.classList.add("active");
     const fn = document.createElement("span"); fn.className = "fn"; fn.textContent = NAMES[name] || name;
     const sm = document.createElement("span"); sm.className = "fsmall"; sm.textContent = name;
     li.append(fn, sm);
@@ -314,22 +875,44 @@ function renderFiles() {
     ul.append(li);
   }
 }
+async function refreshDocs() {
+  const r = await api("/api/files");
+  if (!r.ok) return;
+  order = r.data.files.map((x) => x.name);
+  for (const x of r.data.files) if (!files.has(x.name)) files.set(x.name, { name: x.name, loaded: false, eol: "", diskSha: x.sha256 });
+  renderFiles();
+}
 
 /* ------------------------------------------------------------------ save / conflicts */
+function saveFile(name) {
+  const f = typeof name === "string" ? files.get(name) : name;
+  if (!f || !f.loaded) return Promise.resolve(true);
+  if (f._saving) return f._saving;         // one request at a time per file; a second call waits for the first
+  f._saving = saveFileOnce(f).finally(() => { f._saving = null; });
+  return f._saving;
+}
+async function saveFileOnce(f) {
+  if (f.conflict) { toast(tr("conflictFirst")); return false; }
+  if (!isDirty(f)) return true;
+  const doc = f === current ? view.state.doc : f.state.doc;
+  const r = await api("/api/file", { method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: f.name, content: doc.toString(), base_sha256: f.sha }) });
+  if (r.status === 409) {
+    f.conflict = { content: r.data.content, sha: r.data.sha256, stage: 0 }; f.diskChanged = true;
+    renderBanner(); renderFiles(); return false;
+  }
+  if (!r.ok) { toast(tr("saveFail") + errText(r)); return false; }
+  f.sha = r.data.sha256; f.diskSha = r.data.sha256; f.savedDoc = doc; f.diskChanged = false; f._wasDirty = false;
+  renderFiles(); updateEditorHead(); ctx.renderTree();
+  refreshIndex(); countProjectWords();
+  return true;
+}
 async function saveCurrent(thenCompile) {
   const f = current; if (!f) return;
   if (f.conflict) { toast(tr("conflictFirst")); return; }
-  const content = view.state.doc.toString();
   if (!isDirty(f)) { if (thenCompile || $("chkOnSave").checked) compile(); else toast(tr("nothingToSave")); return; }
-  const r = await api("/api/file", { method: "PUT", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path: f.name, content, base_sha256: f.sha }) });
-  if (r.status === 409) {
-    f.conflict = { content: r.data.content, sha: r.data.sha256, stage: 0 }; f.diskChanged = true;
-    renderBanner(); renderFiles(); return;
-  }
-  if (!r.ok) { toast(tr("saveFail") + ((r.data && r.data.error) || r.status)); return; }
-  f.sha = r.data.sha256; f.diskSha = r.data.sha256; f.savedDoc = view.state.doc; f.diskChanged = false;
-  renderFiles(); updateEditorHead(); toast(tr("saved"));
+  if (!(await saveFile(f))) return;
+  toast(tr("saved"));
   if (thenCompile || $("chkOnSave").checked) compile();
 }
 function renderBanner() {
@@ -355,21 +938,24 @@ function renderBanner() {
 /* ------------------------------------------------------------------ external-change polling */
 async function pollChanges() {
   try {
-    const r = await api("/api/changes");
+    const extra = [...files.values()].filter((f) => f.loaded && !order.includes(f.name)).map((f) => "open=" + encodeURIComponent(f.name));
+    const r = await api("/api/changes" + (extra.length ? "?" + extra.join("&") : ""));
     if (!r.ok) return;
-    const list = r.data.files;
-    const names = list.map((x) => x.name);
+    const names = r.data.files.map((x) => x.name);
     if (names.join("|") !== order.join("|")) { order = names; renderFiles(); }
+    const list = r.data.files.concat((r.data.open || []).filter((x) => !x.missing));
+    let changed = false;
     for (const x of list) {
       const f = files.get(x.name);
-      if (f && !f.loaded && f.diskSha !== x.sha256) { f.diskSha = x.sha256; f.diskChanged = true; renderFiles(); continue; }
+      if (f && !f.loaded && f.diskSha !== x.sha256) { f.diskSha = x.sha256; f.diskChanged = true; renderFiles(); changed = true; continue; }
       if (!f || !f.loaded || f.diskSha === x.sha256) continue;
       if (f.conflict && f.conflict.sha === x.sha256) continue;
+      changed = true;
       if (!isDirty(f)) {
         const d = await api("/api/file?path=" + encodeURIComponent(x.name));
         if (!d.ok) continue;
         if (f === current) { replaceDoc(d.data.content, true); f.savedDoc = view.state.doc; }
-        else { f.state = EditorState.create({ doc: d.data.content, extensions: extensions() }); f.savedDoc = f.state.doc; }
+        else { f.state = makeState(d.data.content); f.savedDoc = f.state.doc; }
         f.sha = d.data.sha256; f.diskSha = d.data.sha256; f.eol = d.data.eol; f.diskChanged = false;
       } else {
         const d = await api("/api/file?path=" + encodeURIComponent(x.name));
@@ -379,16 +965,23 @@ async function pollChanges() {
       }
       renderFiles();
     }
+    if (changed) { refreshIndex(); countProjectWords(); }
   } catch {}
 }
 setInterval(pollChanges, 2000);
+setInterval(() => { if (document.visibilityState === "visible") ctx.refreshTree(); }, 6000);
+window.addEventListener("focus", () => { ctx.refreshTree(); refreshIndex(); });
 
 /* ------------------------------------------------------------------ compile */
 let compTimer = null;
-async function compile() {
+async function compile(clean) {
   $("compileStatus").className = "cstatus run";
-  await api("/api/compile", { method: "POST" });
+  await api("/api/compile" + (clean ? "?clean=1" : ""), { method: "POST" });
   pollCompile();
+}
+async function recompileClean() {
+  if (current && isDirty(current) && !(await saveFile(current))) return;
+  compile(true);
 }
 let lastStatus = null;
 function setCompileUI(s) {
@@ -409,7 +1002,8 @@ function renderErrors(s) {
     const loc = document.createElement("span"); loc.className = "loc"; loc.textContent = e.file ? e.file + ":" + e.line : "—";
     const msg = document.createElement("span"); msg.className = "msg"; msg.textContent = e.message;
     li.append(loc, msg);
-    if (e.file && order.includes(e.file)) li.onclick = () => openFile(e.file, e.line);
+    const known = e.file && (order.includes(e.file) || (isEditablePath(e.file) && (treeMeta.entries || []).some((x) => x.path === e.file)));
+    if (known) li.onclick = () => openFile(e.file, e.line);
     ul.append(li);
   }
   $("logTail").textContent = s.log_tail || "";
@@ -424,7 +1018,7 @@ function pollCompile() {
     if (r.data.state === "running" || r.data.queued) { compTimer = setTimeout(tick, 700); return; }
     if (r.data.state === "error") $("drawer").classList.remove("collapsed");
     if (r.data.state === "ok") $("drawer").classList.add("collapsed");
-    loadPdf();
+    if (r.data.pdf !== false) loadPdf();
   };
   tick();
 }
@@ -525,7 +1119,7 @@ async function onPdfDbl(ev, page, el) {
   await openFile(res.data.file, res.data.line);
 }
 async function showInPdf() {
-  if (!current) return;
+  if (!current || imageMode) return;
   const ln = view.state.doc.lineAt(view.state.selection.main.head).number;
   if (isDirty(current)) toast(tr("lineStale"));
   const res = await api("/api/synctex/view?file=" + encodeURIComponent(current.name) + "&line=" + ln);
@@ -580,8 +1174,8 @@ function renderDiff(oldText, curText) {
   });
   if (!d.some((x) => x[0] !== "=")) pre.textContent = tr("sameText");
 }
-$("btnHistory").onclick = async () => {
-  if (!current) return;
+async function openHistory() {
+  if (!current || imageMode) return;
   const r = await api("/api/history?path=" + encodeURIComponent(current.name));
   const ul = $("histList"); ul.textContent = ""; histSel = null;
   $("histRestore").classList.add("hidden"); $("histDiff").textContent = ""; $("histInfo").textContent = tr("pickVersion");
@@ -600,13 +1194,28 @@ $("btnHistory").onclick = async () => {
     ul.append(li);
   }
   $("histPanel").classList.remove("hidden");
-};
+}
+$("btnHistory").onclick = openHistory;
 $("histClose").onclick = () => $("histPanel").classList.add("hidden");
 $("histPanel").onclick = (e) => { if (e.target === $("histPanel")) $("histPanel").classList.add("hidden"); };
 $("histRestore").onclick = () => {
   if (histSel == null) return;
   replaceDoc(histSel, true); $("histPanel").classList.add("hidden"); toast(tr("restored"));
 };
+
+/* ------------------------------------------------------------------ uploads (tree and figure dialog share this) */
+async function uploadFile(file, dir, name, imageOnly) {
+  const max = treeMeta.maxUpload || 25 * 1024 * 1024;
+  if (file.size > max) { toast(tr("tooLarge", file.name, num(Math.round(max / 1048576)))); return null; }
+  let r;
+  try {
+    r = await fetch("/api/upload?dir=" + encodeURIComponent(dir || "") + "&name=" + encodeURIComponent(name || file.name) + (imageOnly ? "&kind=image" : ""),
+      { method: "POST", headers: { "X-LiveTeX": "1", "Content-Type": "application/octet-stream" }, body: file });
+  } catch (e) { toast(tr("opFailed") + e); return null; }
+  let j = null; try { j = await r.json(); } catch {}
+  if (!r.ok) { toast(tr("opFailed") + ((j && j.error) || r.status)); return null; }
+  return j;
+}
 
 /* ------------------------------------------------------------------ resizers */
 document.querySelectorAll(".resizer").forEach((rz) => {
@@ -615,7 +1224,7 @@ document.querySelectorAll(".resizer").forEach((rz) => {
     e.preventDefault(); rz.classList.add("drag");
     const startX = e.clientX, startW = target.getBoundingClientRect().width, left = rz.dataset.side === "left";
     const mv = (ev) => {
-      const dx = ev.clientX - startX, w = Math.max(120, startW + (left ? dx : -dx));
+      const dx = ev.clientX - startX, w = Math.max(160, startW + (left ? dx : -dx));
       target.style.flex = "none"; target.style.width = w + "px";
     };
     const up = () => { rz.classList.remove("drag"); document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); store.set("w-" + rz.dataset.target, target.style.width); };
@@ -626,12 +1235,23 @@ document.querySelectorAll(".resizer").forEach((rz) => {
 
 /* ------------------------------------------------------------------ global keys, unload, init */
 document.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); saveCurrent(false); }
-  else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); saveCurrent(true); }
-  else if ((e.ctrlKey || e.metaKey) && e.key === "j") { e.preventDefault(); showInPdf(); }
+  if (e.defaultPrevented) return;          // already handled by the editor's own key bindings (no double save)
+  const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+  const inDialog = !!document.querySelector(".modal:not(.hidden)");
+  if (mod && k === "s") { e.preventDefault(); saveCurrent(false); }
+  else if (mod && e.key === "Enter" && !inDialog) { e.preventDefault(); saveCurrent(true); }
+  else if (mod && k === "j" && !inDialog) { e.preventDefault(); showInPdf(); }
+  else if ((mod && e.shiftKey && k === "p") || e.key === "F1") { e.preventDefault(); openPalette(); }
+  else if (mod && e.shiftKey && k === "f" && !inDialog) { e.preventDefault(); runAction("searchProject"); }
 });
-window.addEventListener("beforeunload", (e) => { if ([...files.values()].some((f) => f.loaded && isDirty(f))) { e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("beforeunload", (e) => {
+  rememberCursor(current);
+  if ([...files.values()].some((f) => f.loaded && isDirty(f))) { e.preventDefault(); e.returnValue = ""; }
+});
 $("drawerArrow").textContent = "▲";
+
+let outlineTimer;
+function scheduleOutlineMark() { clearTimeout(outlineTimer); outlineTimer = setTimeout(() => ctx.renderOutline(true), 400); }
 
 async function init() {
   lintOn = store.get("lint", "1") === "1"; $("chkLint").checked = lintOn;
@@ -641,7 +1261,10 @@ async function init() {
   const cfg = cr.ok ? cr.data : { title: "RTL LaTeX Live Editor", ui: "en", names: {} };
   NAMES = cfg.names || {};
   appTitle = cfg.title || "RTL LaTeX Live Editor";
+  mainFile = cfg.main || "main.tex";
+  initDialogs(ctx); initTree(ctx); initSearch(ctx);
   applyLang(store.get("lang", cfg.ui || "en"), false);
+  showSide(store.get("side", "1") === "1");
   const [pr, fr] = await Promise.all([api("/api/phrases"), api("/api/files")]);
   if (pr.ok) { phrases = pr.data; matchers = buildMatchers(); }
   if (fr.ok) {
@@ -649,12 +1272,16 @@ async function init() {
     for (const x of fr.data.files) files.set(x.name, { name: x.name, loaded: false, eol: "", diskSha: x.sha256 });
   }
   renderFiles();
+  await ctx.refreshTree(true);
   const last = store.get("lastFile:" + (cfg.title || ""), "");
-  if (order.length) await openFile(order.includes(last) ? last : order[0]);
-  for (const f of files.values()) if (!f.loaded) f.diskSha = f.diskSha;   // not loaded: nothing to compare yet
+  const lastOk = last && (order.includes(last) || (treeMeta.entries || []).some((e) => e.path === last && isEditablePath(last)));
+  if (lastOk) await openFile(last);
+  else if (order.length) await openFile(order[0]);
+  langHooks.forEach((f) => { try { f(); } catch (e) { console.error(e); } });
+  refreshIndex(); countProjectWords();
   const st = await api("/api/compile/status");
   if (st.ok) { setCompileUI(st.data); renderErrors(st.data); if (st.data.state === "running") pollCompile(); }
-  loadPdf();
+  if (!st.ok || st.data.pdf !== false) loadPdf();     // no request (and no 404 in the console) before the first compile
 }
 init();
-window.__editor = { get view() { return view; }, openFile, showInPdf, gotoLine, files, pv };
+window.__editor = { get view() { return view; }, openFile, showInPdf, gotoLine, files, pv, ctx, runAction };
