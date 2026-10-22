@@ -263,3 +263,63 @@ export function formatBib(e) {
   lines.push("}");
   return lines.join("\n");
 }
+
+/* ------------------------------------------------------------------ three-way merge: the file changed on disk while
+   the editor holds unsaved typing; both edits are kept instead of one overwriting the other */
+// line diff of a -> b as hunks {s, e, lines}: a[s:e] becomes lines; hunks are separated by at least one equal line
+export function lineDiff(a, b) {
+  let pre = 0;
+  while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++;
+  let suf = 0;
+  while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf++;
+  const A = a.slice(pre, a.length - suf), B = b.slice(pre, b.length - suf), n = A.length, m = B.length;
+  if (!n && !m) return [];
+  if (!n || !m || n * m > 4e6) return [{ s: pre, e: pre + n, lines: B }];
+  const W = m + 1, t = new Uint32Array((n + 1) * W);      // t[i][j] = longest common subsequence of A[i:], B[j:]
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      t[i * W + j] = A[i] === B[j] ? t[(i + 1) * W + j + 1] + 1 : Math.max(t[(i + 1) * W + j], t[i * W + j + 1]);
+  const hunks = [];
+  let i = 0, j = 0, hs = -1, hl = null;
+  const flush = () => { if (hs >= 0) { hunks.push({ s: pre + hs, e: pre + i, lines: hl }); hs = -1; } };
+  while (i < n || j < m) {
+    if (i < n && j < m && A[i] === B[j]) { flush(); i++; j++; continue; }
+    if (hs < 0) { hs = i; hl = []; }
+    if (j < m && (i >= n || t[i * W + j + 1] >= t[(i + 1) * W + j])) hl.push(B[j++]);
+    else i++;
+  }
+  flush();
+  return hunks;
+}
+// Merge "mine" (the editor) and "theirs" (the disk), two edits of "base", line by line. Changes to different lines are
+// both kept. Where both changed the same or neighbouring lines differently, "mine" stays and "theirs" follows it as
+// commented-out lines between mark.open and mark.close, so nothing is lost and the file still compiles.
+export const MERGE_OPEN = "%>>>>", MERGE_CLOSE = "%<<<<";
+export function merge3(base, mine, theirs, mark = {}) {
+  const O = base.split("\n"), A = mine.split("\n"), B = theirs.split("\n");
+  const open = mark.open || MERGE_OPEN + " saved outside the editor (commented out):", close = mark.close || MERGE_CLOSE;
+  const hunks = lineDiff(O, A).map((h) => ({ ...h, who: "a" })).concat(lineDiff(O, B).map((h) => ({ ...h, who: "b" })))
+    .sort((x, y) => x.s - y.s || x.e - y.e);
+  const side = (hs, s, e) => {
+    const r = []; let p = s;
+    for (const h of hs) { r.push(...O.slice(p, h.s), ...h.lines); p = h.e; }
+    r.push(...O.slice(p, e));
+    return r;
+  };
+  const out = [];
+  let pos = 0, k = 0, conflicts = 0;
+  while (k < hunks.length) {
+    const g = [hunks[k]], s = hunks[k].s;
+    let e = hunks[k].e; k++;
+    while (k < hunks.length && hunks[k].s <= e) { g.push(hunks[k]); e = Math.max(e, hunks[k].e); k++; }
+    out.push(...O.slice(pos, s));
+    const ga = g.filter((h) => h.who === "a"), gb = g.filter((h) => h.who === "b");
+    const ra = side(ga, s, e), rb = side(gb, s, e);
+    if (!gb.length || ra.join("\n") === rb.join("\n")) out.push(...ra);
+    else if (!ga.length) out.push(...rb);
+    else { conflicts++; out.push(...ra, open, ...rb.map((l) => (l ? "% " + l : "%")), close); }
+    pos = e;
+  }
+  out.push(...O.slice(pos));
+  return { text: out.join("\n"), conflicts };
+}

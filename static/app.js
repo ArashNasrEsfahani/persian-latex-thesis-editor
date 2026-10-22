@@ -30,6 +30,11 @@ const I18N = {
     conflict0: "This file was changed outside the editor", loadDisk: "Load the disk version", keepMine: "Keep my version",
     conflict1: "The next save overwrites the disk version (the old one stays in History). Sure?", yesKeep: "Yes, keep mine",
     back: "Back", saveWithCtrlS: "Press Ctrl+S to save",
+    merged: (f) => "Changes saved outside the editor were added to " + f + " (Ctrl+Z takes them out)",
+    mergeOpen: "%>>>> saved outside the editor, commented out (remove the % to use it, or delete this block):",
+    mergeClose: "%<<<< end of the outside version",
+    mergeNote: (n) => n + (n === "1" ? " place was" : " places were") + " changed both here and outside the editor. Your text is kept; the outside version follows it as comments, between %>>>> and %<<<<.",
+    mergeShow: "Show", mergeOk: "OK",
     seconds: (n) => n + " s", pages: (n) => n + (n === "1" ? " page" : " pages"), nErrors: (n) => n + (n === "1" ? " error" : " errors"), noErrors: "no errors",
     line: (n) => "line " + n, noSource: "No source found for this point", lineStale: "Line is from the last compile",
     lineNotFound: "This line was not found in the PDF (compile first)", pageOf: (a, b) => "page " + a + " of " + b,
@@ -114,6 +119,11 @@ const I18N = {
     conflict0: "این فایل بیرون از ویرایشگر تغییر کرد", loadDisk: "بارگذاری نسخهٔ دیسک", keepMine: "نگه داشتن نسخهٔ من",
     conflict1: "ذخیرهٔ بعدی نسخهٔ دیسک را بازنویسی می‌کند (نسخهٔ قبلی در تاریخچه می‌ماند). مطمئنید؟", yesKeep: "بله، نسخهٔ من بماند",
     back: "برگشت", saveWithCtrlS: "با Ctrl+S ذخیره کنید",
+    merged: (f) => "تغییرهایی که بیرون از ویرایشگر در " + f + " ذخیره شده بود، به متن شما اضافه شد (با Ctrl+Z برمی‌گردد)",
+    mergeOpen: "%>>>> نسخه‌ای که بیرون از ویرایشگر ذخیره شد، به‌صورت توضیح (برای استفاده % را بردارید، یا این بخش را پاک کنید):",
+    mergeClose: "%<<<< پایان نسخهٔ بیرونی",
+    mergeNote: (n) => "این فایل در " + n + " جا هم اینجا و هم بیرون از ویرایشگر تغییر کرده بود. متن شما مانده است و نسخهٔ بیرونی، به‌صورت توضیح، زیر آن آمده است (میان %>>>> و %<<<<).",
+    mergeShow: "نشان بده", mergeOk: "باشد",
     seconds: (n) => n + " ثانیه", pages: (n) => n + " صفحه", nErrors: (n) => n + " خطا", noErrors: "بدون خطا",
     line: (n) => "خط " + n, noSource: "منبعی برای این نقطه پیدا نشد", lineStale: "خط بر اساس آخرین کامپایل است",
     lineNotFound: "این خط در PDF پیدا نشد (کامپایل کنید)", pageOf: (a, b) => "صفحهٔ " + a + " از " + b,
@@ -547,6 +557,38 @@ function replaceDoc(text, keepLine) {
   const l = doc.line(Math.min(ln, doc.lines));
   if (keepLine) view.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: "center" }) });
 }
+// replace a file's text with the smallest change, so the cursor, the scroll and the undo history stay put
+function setDocText(f, text) {
+  const old = (f === current ? view.state.doc : f.state.doc).toString();
+  if (old === text) return;
+  const max = Math.min(old.length, text.length);
+  let a = 0, b = 0;
+  while (a < max && old.charCodeAt(a) === text.charCodeAt(a)) a++;
+  while (b < max - a && old.charCodeAt(old.length - 1 - b) === text.charCodeAt(text.length - 1 - b)) b++;
+  const changes = { from: a, to: old.length - b, insert: text.slice(a, text.length - b) };
+  if (f === current) view.dispatch({ changes });
+  else f.state = f.state.update({ changes }).state;
+}
+// another program (or another tool) saved this file while it was open here: the disk version becomes the saved one,
+// and any unsaved typing is merged into it instead of being lost or overwriting it (one Ctrl+Z undoes the merge)
+function takeDiskVersion(f, d) {
+  const dirty = isDirty(f);
+  let conflicts = 0;
+  if (!dirty) setDocText(f, d.content);
+  else {
+    const mine = (f === current ? view.state.doc : f.state.doc).toString();
+    const m = LT.merge3(f.savedDoc.toString(), mine, d.content, { open: tr("mergeOpen"), close: tr("mergeClose") });
+    setDocText(f, m.text);
+    conflicts = m.conflicts;
+  }
+  f.savedDoc = dirty ? makeState(d.content).doc : (f === current ? view.state.doc : f.state.doc);
+  f.sha = d.sha256; f.diskSha = d.sha256; if (d.eol) f.eol = d.eol;
+  f.diskChanged = false; f.conflict = null; f._wasDirty = isDirty(f);
+  if (conflicts) f.mergeNote = conflicts;
+  if (dirty) toast(tr("merged", f.name));
+  if (f === current) { renderBanner(); updateEditorHead(); countCurrentWords(); }
+  return conflicts;
+}
 // new saved content arrived from the server (project replace, new bib entry): show it as the saved version
 function reloadFromContent(name, content, sha) {
   const f = files.get(name);
@@ -905,15 +947,17 @@ function saveFile(name) {
   f._saving = saveFileOnce(f).finally(() => { f._saving = null; });
   return f._saving;
 }
-async function saveFileOnce(f) {
+async function saveFileOnce(f, again = true) {
   if (f.conflict) { toast(tr("conflictFirst")); return false; }
   if (!isDirty(f)) return true;
   const doc = f === current ? view.state.doc : f.state.doc;
   const r = await api("/api/file", { method: "PUT", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path: f.name, content: doc.toString(), base_sha256: f.sha }) });
   if (r.status === 409) {
-    f.conflict = { content: r.data.content, sha: r.data.sha256, stage: 0 }; f.diskChanged = true;
-    renderBanner(); renderFiles(); return false;
+    // saved elsewhere since this file was loaded: merge that version in; save again only if nothing overlapped
+    const conflicts = takeDiskVersion(f, r.data);
+    renderFiles();
+    return conflicts || !again ? false : saveFileOnce(f, false);
   }
   if (!r.ok) { toast(tr("saveFail") + errText(r)); return false; }
   f.sha = r.data.sha256; f.diskSha = r.data.sha256; f.savedDoc = doc; f.diskChanged = false; f._wasDirty = false;
@@ -931,10 +975,22 @@ async function saveCurrent(thenCompile) {
 }
 function renderBanner() {
   const b = $("banner"); const f = current;
-  if (!f || !f.conflict) { b.classList.add("hidden"); b.textContent = ""; return; }
+  if (!f || (!f.conflict && !f.mergeNote)) { b.classList.add("hidden"); b.textContent = ""; return; }
   b.classList.remove("hidden"); b.textContent = "";
   const msg = document.createElement("span");
   const mk = (label, fn, cls) => { const x = document.createElement("button"); x.className = "btn sm " + (cls || ""); x.textContent = label; x.onclick = fn; return x; };
+  if (!f.conflict) {
+    msg.textContent = tr("mergeNote", num(f.mergeNote));
+    b.append(msg,
+      mk(tr("mergeShow"), () => {
+        const doc = view.state.doc, head = view.state.selection.main.head, text = doc.toString();
+        let at = text.indexOf("\n" + LT.MERGE_OPEN, head);
+        if (at < 0) at = text.indexOf("\n" + LT.MERGE_OPEN);
+        if (at >= 0) gotoLine(doc.lineAt(at + 1).number);
+      }, "primary"),
+      mk(tr("mergeOk"), () => { f.mergeNote = 0; renderBanner(); }));
+    return;
+  }
   if (f.conflict.stage === 0) {
     msg.textContent = tr("conflict0");
     b.append(msg,
@@ -965,18 +1021,10 @@ async function pollChanges() {
       if (!f || !f.loaded || f.diskSha === x.sha256) continue;
       if (f.conflict && f.conflict.sha === x.sha256) continue;
       changed = true;
-      if (!isDirty(f)) {
-        const d = await api("/api/file?path=" + encodeURIComponent(x.name));
-        if (!d.ok) continue;
-        if (f === current) { replaceDoc(d.data.content, true); f.savedDoc = view.state.doc; }
-        else { f.state = makeState(d.data.content); f.savedDoc = f.state.doc; }
-        f.sha = d.data.sha256; f.diskSha = d.data.sha256; f.eol = d.data.eol; f.diskChanged = false;
-      } else {
-        const d = await api("/api/file?path=" + encodeURIComponent(x.name));
-        if (!d.ok) continue;
-        f.diskChanged = true; f.conflict = { content: d.data.content, sha: d.data.sha256, stage: 0 };
-        if (f === current) renderBanner();
-      }
+      const d = await api("/api/file?path=" + encodeURIComponent(x.name));
+      if (!d.ok) continue;
+      if (f._saving) continue;          // our own save is in flight; its answer settles the version
+      takeDiskVersion(f, d.data);
       renderFiles();
     }
     if (changed) { refreshIndex(); countProjectWords(); }

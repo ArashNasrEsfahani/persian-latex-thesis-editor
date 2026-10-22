@@ -667,6 +667,19 @@ eq("command units keep Latin arguments, not Persian ones",
     .filter((s) => s.cmd).map((s) => s.text),
   ["\\lr{Gemma 4}", "\\textbf", "\\includegraphics[width=0.9\\linewidth]{figs/a.png}", "\\cite{a,b}", "\\lr", "\\textbf{X}"]);
 eq("formatBib preview", LT.formatBib({ type: "article", key: "k", title: "T", venue: "J" }), "@article{k,\n  title = {T},\n  journal = {J}\n}");
+eq("lineDiff", LT.lineDiff(["a", "b", "c"], ["a", "x", "c", "d"]), [{ s: 1, e: 2, lines: ["x"] }, { s: 3, e: 3, lines: ["d"] }]);
+const M3 = (b, a, t) => LT.merge3(b.join("\n"), a.join("\n"), t.join("\n"), { open: "%>>", close: "%<<" });
+eq("merge: edits on different lines are both kept", M3(["a", "b", "c", "d", "e"], ["A", "b", "c", "d", "e"], ["a", "b", "c", "d", "E"]),
+  { text: "A\nb\nc\nd\nE", conflicts: 0 });
+eq("merge: typing kept when the disk rewrote another paragraph",
+  M3(["p1", "", "p2", "", "p3"], ["p1 typed", "", "p2", "", "p3"], ["p1", "", "p2", "", "new p3", "more"]),
+  { text: "p1 typed\n\np2\n\nnew p3\nmore", conflicts: 0 });
+eq("merge: the same edit on both sides is not a conflict", M3(["a", "b"], ["a", "B"], ["a", "B"]), { text: "a\nB", conflicts: 0 });
+eq("merge: only the disk changed", M3(["x", "y"], ["x", "y"], ["x", "y", "z"]), { text: "x\ny\nz", conflicts: 0 });
+eq("merge: same lines changed on both sides keep mine, then theirs as comments",
+  M3(["a", "b", "", "c"], ["a", "mine", "", "c"], ["a", "theirs", "", "c"]), { text: "a\nmine\n%>>\n% theirs\n%<<\n\nc", conflicts: 1 });
+eq("merge: an empty line on the disk side is commented as a bare %", M3(["a", "b"], ["a", "m"], ["a", "", "t"]).text.split("\n").slice(2, 6),
+  ["%>>", "%", "% t", "%<<"]);
 console.log(JSON.stringify(out));
 """.replace("__LT_URL__", json.dumps((S.STATIC / "latex-tools.js").as_uri()))
     tmpjs = Path(tempfile.mkdtemp(prefix="rtlled-js-")) / "t.mjs"
@@ -685,6 +698,8 @@ else:
 js = (S.STATIC / "app.js").read_text(encoding="utf-8")
 check("command units are CodeMirror bidi isolates, registered for cursor drawing and motion",
       "bidiIsolate: Direction.LTR" in js and "EditorView.bidiIsolatedRanges.of(" in js and "LT.CMD_UNIT" in js)
+check("a file saved outside the editor is merged into unsaved typing, on the disk check and on a refused save",
+      js.count("takeDiskVersion(f, ") >= 2 and "LT.merge3(" in js and "f.conflict = { content: d.data.content" not in js)
 
 
 def keys(lang):
