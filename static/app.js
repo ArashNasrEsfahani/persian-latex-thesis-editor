@@ -1028,6 +1028,8 @@ async function pollChanges() {
       renderFiles();
     }
     if (changed) { refreshIndex(); countProjectWords(); }
+    const bd = r.data.build;
+    if (bd && !compPolling && (bd.state === "running" || (bd.finished && bd.finished !== lastBuildSeen))) pollCompile();
   } catch {}
 }
 setInterval(pollChanges, 2000);
@@ -1083,13 +1085,16 @@ function renderErrors(s) {
   $("logTail").textContent = s.log_tail || "";
   $("drawerCount").textContent = s.state === "ok" ? tr("noErrors") : tr("nErrors", num(s.errors.length));
 }
+let compPolling = false, lastBuildSeen = null;   // a build the server started by itself (outside change) is followed too
 function pollCompile() {
   clearTimeout(compTimer);
+  compPolling = true;
   const tick = async () => {
     const r = await api("/api/compile/status");
     if (!r.ok) { compTimer = setTimeout(tick, 1000); return; }
     setCompileUI(r.data); renderErrors(r.data);
     if (r.data.state === "running" || r.data.queued) { compTimer = setTimeout(tick, 700); return; }
+    compPolling = false; lastBuildSeen = r.data.finished;
     if (r.data.state === "error") $("drawer").classList.remove("collapsed");
     if (r.data.state === "ok") $("drawer").classList.add("collapsed");
     if (r.data.pdf !== false) loadPdf();
@@ -1354,7 +1359,7 @@ async function init() {
   langHooks.forEach((f) => { try { f(); } catch (e) { console.error(e); } });
   refreshIndex(); countProjectWords();
   const st = await api("/api/compile/status");
-  if (st.ok) { setCompileUI(st.data); renderErrors(st.data); if (st.data.state === "running") pollCompile(); }
+  if (st.ok) { setCompileUI(st.data); renderErrors(st.data); lastBuildSeen = st.data.finished; if (st.data.state === "running") pollCompile(); }
   if (!st.ok || st.data.pdf !== false) loadPdf();     // no request (and no 404 in the console) before the first compile
 }
 init();

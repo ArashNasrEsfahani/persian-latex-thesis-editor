@@ -41,7 +41,7 @@ MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=ut
 DEFAULTS = {
     "root": ".", "main": "main.tex", "port": 8765, "title": "", "engine": "xelatex",
     "order": [], "names": {}, "extensions": [".tex", ".bib"], "outdir": "_live",
-    "hints": [], "ui": "en", "uploads": "figs/uploads", "fast_pdf": True,
+    "hints": [], "ui": "en", "uploads": "figs/uploads", "fast_pdf": True, "build_outside": True,
 }
 # xelatex writes an .xdv in ~3 s even for 120 pages; xdvipdfmx at its default (maximum) compression then needs ~36 s.
 # Everyday compiles write the preview PDF with light compression; "Final PDF" rewrites it at full compression.
@@ -90,6 +90,7 @@ class Config:
         self.uploads = str(d["uploads"] or "").strip().strip("/")
         self.base = Path(d.get("_base", self.root))   # where relative hint-pack paths resolve
         self.fast_pdf = bool(d["fast_pdf"])
+        self.build_outside = bool(d["build_outside"])   # rebuild when files change outside the editor
         self.validate()
 
     def validate(self):
@@ -312,6 +313,7 @@ def atomic_write(p, data):
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+    WATCHER.note_own(p)
 
 
 def list_files(root=None, cfg=None):
@@ -1735,8 +1737,69 @@ class Compiler:
                     "changed_count": len(self.changed),
                     "pdf": (CFG.root / CFG.outdir / (CFG.stem + ".pdf")).is_file()}
 
+    def brief(self):
+        with self.lock:
+            return {"state": self.state, "finished": self.finished}
+
 
 COMPILER = Compiler()
+
+
+def pdf_is_stale(cfg=None):
+    """True when there is no PDF yet or a source, image or font is newer than it."""
+    cfg = cfg or CFG
+    pdf = cfg.root / cfg.outdir / (cfg.stem + ".pdf")
+    if not pdf.is_file():
+        return True
+    t = pdf.stat().st_mtime_ns
+    return any(v[0] > t for v in source_snapshot(cfg.root, cfg).values())
+
+
+class OutsideWatcher:
+    """Rebuild when project files change outside the editor (another program, a script, an assistant), so the PDF
+    pane always shows what is on disk. Saves made through the editor are left to its own compile-on-save choice."""
+    POLL = 2.0
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.snap = None
+        self.own = {}             # rel -> (mtime_ns, size) of files the editor itself just wrote
+
+    def note_own(self, p):
+        try:
+            rel = Path(p).resolve().relative_to(CFG.root.resolve()).as_posix()
+            st = Path(p).stat()
+        except (OSError, ValueError, AttributeError):
+            return
+        with self.lock:
+            self.own[rel] = (st.st_mtime_ns, st.st_size)
+
+    def start(self):
+        self.snap = source_snapshot()
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def outside_changes(self, snap):
+        """Files changed since the last look that the editor did not write itself."""
+        with self.lock:
+            out = []
+            for k in changed_since(self.snap, snap):
+                if k in self.own and self.own.pop(k) == snap.get(k):
+                    continue
+                out.append(k)
+            self.snap = snap
+            return out
+
+    def _run(self):
+        while True:
+            time.sleep(self.POLL)
+            try:
+                if self.outside_changes(source_snapshot()) and CFG.build_outside:
+                    COMPILER.request()
+            except Exception:
+                pass
+
+
+WATCHER = OutsideWatcher()
 
 
 # ---------------------------------------------------------------- hint packs
@@ -1957,7 +2020,8 @@ class Handler(BaseHTTPRequestHandler):
         if m == "GET" and path == "/api/compile/status":
             return self._send(200, COMPILER.status())
         if m == "GET" and path == "/api/changes":
-            return self._send(200, {"files": list_files(), "open": file_states(qs.get("open", []))})
+            return self._send(200, {"files": list_files(), "open": file_states(qs.get("open", [])),
+                                    "build": COMPILER.brief()})
         if m == "GET" and path == "/api/phrases":
             return self._send(200, load_phrases())
         if m == "GET" and path == "/api/synctex/edit":
@@ -2030,6 +2094,10 @@ def main(argv=None):
         return 1
     url = "http://127.0.0.1:%d" % cfg.port
     print("RTL LaTeX Live Editor on %s  (root %s, main %s, engine %s)" % (url, cfg.root, cfg.main, cfg.engine), flush=True)
+    WATCHER.start()
+    if cfg.build_outside and pdf_is_stale(cfg):
+        print("the sources are newer than the PDF: building it now", flush=True)
+        COMPILER.request()
     if args.open:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:
