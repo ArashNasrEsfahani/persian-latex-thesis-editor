@@ -133,7 +133,13 @@ check("config discovered in root", cfg.main == "paper.tex" and cfg.port == 9001 
 check("config fields", cfg.engine == "lualatex" and cfg.ui == "fa" and cfg.outdir == "build" and cfg.names["paper.tex"] == "مقاله")
 check("latexmk lualatex", cfg.latexmk[:2] == ["latexmk", "-lualatex"] and "-outdir=build" in cfg.latexmk and cfg.latexmk[-1] == "paper.tex")
 check("pdf rel path", cfg.pdf_rel == "build/paper.pdf" and cfg.stem == "paper")
-check("latexmk xelatex/pdflatex", S.Config(engine="xelatex").latexmk[1] == "-xelatex" and S.Config(engine="pdflatex").latexmk[1] == "-pdf")
+check("latexmk xelatex/pdflatex", "-xelatex" in S.Config(engine="xelatex").latexmk and S.Config(engine="pdflatex").latexmk[1] == "-pdf")
+check("xelatex compiles with the light PDF writer rc", S.Config().latexmk[:3] == ["latexmk", "-r", "_live/.livetex-fast.latexmkrc"]
+      and S.Config(outdir="b").fast_rc == "b/.livetex-fast.latexmkrc" and "-z 1" in S.FAST_RC_TEXT)
+check("no light-writer rc for pdflatex/lualatex or with fast_pdf off", "-r" not in S.Config(engine="pdflatex").latexmk
+      and "-r" not in S.Config(engine="lualatex").latexmk and "-r" not in S.Config(fast_pdf=False).latexmk)
+check("final PDF = xdvipdfmx at default compression over the .xdv",
+      S.Config(outdir="b", main="t.tex").final_pdf("b/t.tmp.pdf") == ["xdvipdfmx", "-q", "-E", "-o", "b/t.tmp.pdf", "b/t.xdv"])
 cfg, _ = S.load_config(["--root", str(proj), "--port", "7000", "--main", "other.tex"])
 check("CLI overrides config", cfg.port == 7000 and cfg.main == "other.tex")
 cfg, _ = S.load_config(["--config", str(proj / "livetex.json")])
@@ -516,6 +522,31 @@ for v in ["../x", "_live/x", "C:/x", ".hidden", ""]:
     except S.ConfigError:
         check("bad uploads %r rejected" % v, True)
 check("latexmk -C for a clean rebuild", S.Config(outdir="build", main="paper.tex").latexmk_clean == ["latexmk", "-C", "-outdir=build", "paper.tex"])
+
+# ---------------------------------------------------------------- what changed since the last compile; compile modes
+old = {"a.tex": (1, 10), "b.tex": (2, 20), "gone.tex": (3, 30)}
+new = {"a.tex": (1, 10), "b.tex": (5, 21), "c.tex": (6, 5)}
+check("changed: edited, added and removed files", S.changed_since(old, new) == ["b.tex", "c.tex", "gone.tex"])
+check("changed: nothing", S.changed_since(new, dict(new)) == [])
+check("changed after a restart = newer than the PDF", S.changed_since(None, new, 4) == ["b.tex", "c.tex"])
+check("changed with no PDF yet = everything", S.changed_since(None, new) == ["a.tex", "b.tex", "c.tex"])
+w("_drafts/x.tex", "x\n")
+w("figs/p.png", "png")
+snap = S.source_snapshot(proj2)
+check("snapshot covers sources and images", "chapters/ch1.tex" in snap and "figs/p.png" in snap)
+check("snapshot skips _ folders and build output", not any(k.startswith(("_drafts/", "_live/")) for k in snap))
+c = S.Compiler()
+c.state, c.started = "running", time.time()
+check("request while running queues", c.request(final=True) == "queued" and c.pending_mode == "final")
+c.request()
+check("a plain request does not downgrade a queued final", c.pending_mode == "final")
+c.request(clean=True)
+check("a clean request wins over final", c.pending_mode == "clean")
+c.request(final=True)
+check("final does not downgrade a queued clean", c.pending_mode == "clean")
+st = c.status()
+check("status reports mode, quality and changed files", {"mode", "quality", "changed", "changed_count"} <= set(st))
+check("replace_retry moves a file", (lambda a, b: (a.write_text("1"), S.replace_retry(str(a), str(b)))[1] and b.read_text() == "1")(proj2 / "r1.tmp", proj2 / "r2.tmp"))
 
 # ---------------------------------------------------------------- two saves at once with the same base: one wins, one gets 409
 w("race.tex", "base\n")

@@ -60,6 +60,12 @@ next to the source. The server is a single Python file with no dependencies.
   citations are not counted; a Persian word with a zero-width non-joiner, such as «می‌شود», counts once).
 - **Compile on save** toggle (remembered) and **Recompile from scratch** (`latexmk -C`, then compile) in the menu next
   to Compile.
+- **Fast everyday compiles (XeLaTeX).** `latexmk` already reruns only the steps a change needs (BibTeX only when the
+  citations change, and so on); on a long document most of the remaining time is `xdvipdfmx` compressing the PDF at its
+  maximum level. The editor writes the preview PDF with light compression instead (`xdvipdfmx -z 1`): on a 120-page
+  Persian thesis an edit-and-compile went from 52–89 s to about 10 s. **Final PDF (full quality)** in the same menu
+  rewrites the PDF at full compression when you need the file to send. Hovering the status badge lists the files that
+  changed since the last compile and says which kind of PDF is showing. Set `"fast_pdf": false` to turn this off.
 - **New BibTeX entry** form (type, key suggested from author + year + title, authors, title, year, venue, DOI, URL)
   appended to a chosen `.bib` file through the normal save path, optionally inserting `\cite{key}` at the cursor.
 - **Command palette** (`Ctrl+Shift+P` or `F1`) listing every action, and the editor remembers the open file and the
@@ -134,6 +140,7 @@ Relative paths are resolved against the folder that holds the config file. Unkno
 | `extensions` | `[".tex", ".bib"]` | extensions of the root-level files listed under "Documents" (the file tree shows everything; text files with `.tex .bib .sty .cls .md .txt .csv .bst .def .cfg .clo` and similar are editable anywhere in the project) |
 | `uploads` | `"figs/uploads"` | folder (relative to the root) where images uploaded from the Insert figure dialog are saved |
 | `outdir` | `"_live"` | `latexmk -outdir` folder name |
+| `fast_pdf` | `true` | XeLaTeX only: write the preview PDF with light compression (much faster); **Final PDF** gives the full-quality file |
 | `hints` | `[]` | phrase-hint packs: built-in names (`"fa-plain-persian"`) or file paths |
 | `ui` | `"en"` | UI language, `"en"` or `"fa"` (the in-page toggle overrides it for that browser) |
 
@@ -215,7 +222,8 @@ TeX installation and works only on temporary folders.
 - Caption and other text fields in the dialogs are plain inputs: a LaTeX command inside Persian text can look reordered
   while you type it there (the code preview under the fields shows it the way the editor does).
 - The error list is parsed from `-file-line-error` output; errors that LaTeX does not attribute to a line show without a location.
-- Compilation uses `latexmk` with the options in `server.py`; custom `latexmkrc` settings in the project still apply.
+- Compilation uses `latexmk` with the options in `server.py`; custom `latexmkrc` settings in the project still apply,
+  except that with `fast_pdf` on (the default) the editor's own rc, read last, sets `$xdvipdfmx`.
 - The PDF is redrawn after every compile, not incrementally; very large documents take a moment.
 - Needs internet access for CodeMirror, PDF.js and the font (they are not bundled).
 
@@ -230,6 +238,7 @@ TeX installation and works only on temporary folders.
 - تاریخچهٔ ذخیره، تشخیص تعارض هنگام تغییر فایل بیرون از ویرایشگر، فهرست خطاهای کامپایل.
 - عبارت‌های مشکوک با بستهٔ قابل‌افزودن زیر خط کشیده می‌شوند؛ بستهٔ «فارسی ساده» همراه برنامه است.
 - رابط انگلیسی یا فارسی (کلید `فا` / `EN` در نوار بالا، یا `"ui": "fa"` در پیکربندی).
+- کامپایل سریع با XeLaTeX: هنگام ویرایش، PDF با فشرده‌سازی سبک ساخته می‌شود (در یک پایان‌نامهٔ ۱۲۰ صفحه‌ای، از ۵۲ تا ۸۹ ثانیه به حدود ۱۰ ثانیه رسید). گزینهٔ «PDF نهایی (کیفیت کامل)» در منوی کامپایل، فایل کامل را برای فرستادن می‌سازد. نگه داشتن نشانگر روی وضعیت کامپایل، فایل‌های تغییرکرده از کامپایل قبلی را نشان می‌دهد.
 - درخت فایل‌های پروژه: ساختن فایل و پوشه، تغییر نام و جابه‌جایی، بارگذاری با کشیدن فایل؛ حذف هیچ‌وقت قطعی نیست و فایل به
   سطل بازیافت (`_edit_trash`) می‌رود و از همان‌جا برمی‌گردد.
 - افزودن شکل (بارگذاری، کشیدن یا چسباندن تصویر) و جدول (با جدول‌ساز یا چسباندن از Excel) با عنوان کوتاه و برچسب.

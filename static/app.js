@@ -68,6 +68,9 @@ const I18N = {
     badRegex: "Bad regular expression: ",
     actCompile: "Save and compile", actRecompile: "Recompile from scratch",
     actRecompileTip: "Delete the build files (latexmk -C) and compile again", moreMenu: "More compile options",
+    actFinal: "Final PDF (full quality)", actFinalTip: "Compile, then write the PDF at full compression (smaller file, slower)",
+    fastPdf: "quick preview PDF; use Final PDF before sending", fullPdf: "full-quality PDF",
+    changedFiles: (n) => "Changed since the last compile (" + n + "):", nothingChanged: "Nothing changed since the last compile",
     actBold: "Bold", actItalic: "Italic", actLr: "Latin text in a Persian line (\\lr)", actSection: "Section",
     actSubsection: "Subsection", actSubsubsection: "Subsubsection", actItemize: "Bulleted list", actEnumerate: "Numbered list",
     actEquation: "Equation", actMath: "Inline math", actFootnote: "Footnote", actCite: "Cite a reference (\\cite)",
@@ -149,6 +152,9 @@ const I18N = {
     badRegex: "عبارت منظم درست نیست: ",
     actCompile: "ذخیره و کامپایل", actRecompile: "کامپایل از صفر",
     actRecompileTip: "پاک کردن فایل‌های ساخت (latexmk -C) و کامپایل دوباره", moreMenu: "گزینه‌های بیشتر کامپایل",
+    actFinal: "PDF نهایی (کیفیت کامل)", actFinalTip: "کامپایل و سپس ساخت PDF با فشرده‌سازی کامل (فایل کوچک‌تر، کندتر)",
+    fastPdf: "PDF پیش‌نمایش سریع؛ پیش از فرستادن، PDF نهایی را بسازید", fullPdf: "PDF با کیفیت کامل",
+    changedFiles: (n) => "تغییرها از کامپایل قبلی (" + n + "):", nothingChanged: "از کامپایل قبلی چیزی تغییر نکرده",
     actBold: "پررنگ", actItalic: "کج", actLr: "متن لاتین در خط فارسی (\\lr)", actSection: "بخش",
     actSubsection: "زیربخش", actSubsubsection: "زیربخش سطح سوم", actItemize: "فهرست نشانه‌دار", actEnumerate: "فهرست شماره‌دار",
     actEquation: "معادله", actMath: "ریاضی درون متن", actFootnote: "پانویس", actCite: "ارجاع به منبع (\\cite)",
@@ -739,6 +745,7 @@ const ACTIONS = [
   { id: "save", label: "save", key: "Ctrl+S", run: () => saveCurrent(false) },
   { id: "compile", label: "actCompile", key: "Ctrl+Enter", run: () => saveCurrent(true) },
   { id: "recompile", label: "actRecompile", run: () => recompileClean() },
+  { id: "finalPdf", label: "actFinal", run: () => compileFinal() },
   { id: "showInPdf", label: "showInPdf", key: "Ctrl+J", run: () => showInPdf() },
   { id: "history", label: "history", run: () => openHistory() },
   { id: "find", label: "actFind", key: "Ctrl+F", run: () => { hideImage(); openSearchPanel(view); } },
@@ -974,14 +981,18 @@ window.addEventListener("focus", () => { ctx.refreshTree(); refreshIndex(); });
 
 /* ------------------------------------------------------------------ compile */
 let compTimer = null;
-async function compile(clean) {
+async function compile(mode) {
   $("compileStatus").className = "cstatus run";
-  await api("/api/compile" + (clean ? "?clean=1" : ""), { method: "POST" });
+  await api("/api/compile" + (mode === "clean" ? "?clean=1" : mode === "final" ? "?final=1" : ""), { method: "POST" });
   pollCompile();
 }
 async function recompileClean() {
   if (current && isDirty(current) && !(await saveFile(current))) return;
-  compile(true);
+  compile("clean");
+}
+async function compileFinal() {
+  if (current && isDirty(current) && !(await saveFile(current))) return;
+  compile("final");
 }
 let lastStatus = null;
 function setCompileUI(s) {
@@ -991,9 +1002,17 @@ function setCompileUI(s) {
   $("compileLabel").textContent = running ? tr("compiling") : tr("compile");
   const el = $("compileStatus");
   if (running) { el.className = "cstatus run"; el.textContent = tr("seconds", num(Math.floor(s.seconds))); }
-  else if (s.state === "ok") { el.className = "cstatus ok"; el.textContent = "✓ " + tr("pages", s.pages ? num(s.pages) : "?"); }
+  else if (s.state === "ok") { el.className = "cstatus ok"; el.textContent = "✓ " + tr("pages", s.pages ? num(s.pages) : "?") + " · " + tr("seconds", num(Math.round(s.seconds))); }
   else if (s.state === "error") { el.className = "cstatus err"; el.textContent = "✗ " + tr("nErrors", num(s.errors.length)); }
   else { el.className = "cstatus"; el.textContent = ""; }
+  el.title = running ? "" : compileTip(s);
+}
+function compileTip(s) {
+  const lines = [];
+  if (s.quality) lines.push(tr(s.quality === "full" ? "fullPdf" : "fastPdf"));
+  if (s.changed_count) lines.push(tr("changedFiles", num(s.changed_count)), ...s.changed.map((f) => "  " + f), ...(s.changed_count > s.changed.length ? ["  …"] : []));
+  else if (s.finished) lines.push(tr("nothingChanged"));
+  return lines.join("\n");
 }
 function renderErrors(s) {
   const ul = $("errList"); ul.textContent = "";

@@ -41,8 +41,13 @@ MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=ut
 DEFAULTS = {
     "root": ".", "main": "main.tex", "port": 8765, "title": "", "engine": "xelatex",
     "order": [], "names": {}, "extensions": [".tex", ".bib"], "outdir": "_live",
-    "hints": [], "ui": "en", "uploads": "figs/uploads",
+    "hints": [], "ui": "en", "uploads": "figs/uploads", "fast_pdf": True,
 }
+# xelatex writes an .xdv in ~3 s even for 120 pages; xdvipdfmx at its default (maximum) compression then needs ~36 s.
+# Everyday compiles write the preview PDF with light compression; "Final PDF" rewrites it at full compression.
+FAST_RC = ".livetex-fast.latexmkrc"
+FAST_RC_TEXT = "$xdvipdfmx = 'xdvipdfmx -z 1 -E -o %D %O %S';\n"
+CHANGED_SHOW = 30
 
 
 class HttpError(Exception):
@@ -84,6 +89,7 @@ class Config:
         self.ui = d["ui"]
         self.uploads = str(d["uploads"] or "").strip().strip("/")
         self.base = Path(d.get("_base", self.root))   # where relative hint-pack paths resolve
+        self.fast_pdf = bool(d["fast_pdf"])
         self.validate()
 
     def validate(self):
@@ -118,9 +124,19 @@ class Config:
         return "%s/%s.pdf" % (self.outdir, self.stem)
 
     @property
+    def fast_rc(self):
+        """The latexmk rc (relative to the root) that sets the light-compression PDF writer, or None."""
+        return self.outdir + "/" + FAST_RC if (self.fast_pdf and self.engine == "xelatex") else None
+
+    @property
     def latexmk(self):
-        return ["latexmk", ENGINES[self.engine], "-synctex=1", "-interaction=nonstopmode", "-file-line-error",
-                "-outdir=" + self.outdir, self.main]
+        rc = ["-r", self.fast_rc] if self.fast_rc else []
+        return ["latexmk"] + rc + [ENGINES[self.engine], "-synctex=1", "-interaction=nonstopmode", "-file-line-error",
+                                   "-outdir=" + self.outdir, self.main]
+
+    def final_pdf(self, dest):
+        """xdvipdfmx at its default compression over the .xdv the last build left (xelatex only)."""
+        return ["xdvipdfmx", "-q", "-E", "-o", dest, "%s/%s.xdv" % (self.outdir, self.stem)]
 
     @property
     def latexmk_clean(self):
@@ -1524,6 +1540,37 @@ def run_synctex(args):
 
 
 # ---------------------------------------------------------------- compile manager
+def source_snapshot(root=None, cfg=None):
+    """{rel: (mtime_ns, size)} of the files a build can read (sources, images, fonts), outside _ folders."""
+    cfg = cfg or CFG
+    exts = EDITABLE_EXTS | IMAGE_EXTS | {".ttf", ".otf"}
+    snap = {}
+    for rel, is_dir, st in project_walk(root or cfg.root, cfg):
+        if not is_dir and Path(rel).suffix.lower() in exts and not under_underscore(rel):
+            snap[rel] = (st.st_mtime_ns, st.st_size)
+            if len(snap) >= TREE_MAX:
+                break
+    return snap
+
+
+def changed_since(old, new, since_ns=None):
+    """Files added, edited or removed between two snapshots; with no old snapshot, files newer than `since_ns`."""
+    if old is None:
+        return sorted(k for k, v in new.items() if since_ns is None or v[0] > since_ns)
+    return sorted([k for k, v in new.items() if old.get(k) != v] + [k for k in old if k not in new])
+
+
+def replace_retry(src, dst, tries=20):
+    """os.replace that waits out a reader holding the PDF open (Windows refuses to replace an open file)."""
+    for _ in range(tries):
+        try:
+            os.replace(src, dst)
+            return True
+        except PermissionError:
+            time.sleep(0.1)
+    return False
+
+
 class Compiler:
     def __init__(self):
         self.lock = threading.Lock()
@@ -1536,30 +1583,37 @@ class Compiler:
         self.warnings = 0
         self.log_tail = ""
         self.pending = False
-        self.pending_clean = False
+        self.pending_mode = ""
         self.proc = None
         self.killed = False
+        self.mode = ""               # "" everyday (light PDF), "clean" from scratch, "final" full-compression PDF
+        self.snap = None             # source snapshot taken when the last build started
+        self.changed = []
+        self.quality = None          # "fast" or "full": how the current PDF was written
 
-    def request(self, clean=False):
+    def request(self, clean=False, final=False):
+        mode = "clean" if clean else ("final" if final else "")
         with self.lock:
             if self.state == "running":
                 self.pending = True
-                self.pending_clean = self.pending_clean or clean
+                self.pending_mode = max(self.pending_mode, mode, key=("", "final", "clean").index)
                 return "queued"
             self.state = "running"
             self.started = time.time()
-            threading.Thread(target=self._loop, args=(clean,), daemon=True).start()
+            self.mode = mode
+            threading.Thread(target=self._loop, args=(mode,), daemon=True).start()
             return "started"
 
-    def _loop(self, clean=False):
+    def _loop(self, mode=""):
         while True:
-            self._once(clean)
+            self._once(mode)
             with self.lock:
                 if self.pending:
                     self.pending = False
-                    clean, self.pending_clean = self.pending_clean, False
+                    mode, self.pending_mode = self.pending_mode, ""
                     self.state = "running"
                     self.started = time.time()
+                    self.mode = mode
                     continue
                 return
 
@@ -1569,19 +1623,56 @@ class Compiler:
             env[k] = str(root) + os.pathsep + env.get(k, "")
         return env
 
-    def _once(self, clean=False):
+    def _note_changes(self, root):
+        """What changed since the last build started (or, after a restart, since the PDF was written)."""
+        snap = source_snapshot(root)
+        pdf = root / CFG.outdir / (CFG.stem + ".pdf")
+        since = pdf.stat().st_mtime_ns if (self.snap is None and pdf.is_file()) else None
+        changed = changed_since(self.snap, snap, since)
+        with self.lock:
+            self.snap, self.changed = snap, changed
+
+    def _write_fast_rc(self, root):
+        rc = root / CFG.fast_rc
+        try:
+            if not rc.is_file() or rc.read_text(encoding="utf-8") != FAST_RC_TEXT:
+                rc.write_text(FAST_RC_TEXT, encoding="utf-8")
+        except OSError:
+            pass
+
+    def _final(self, root, kw):
+        """Rewrite the PDF at full compression from the .xdv; returns (ok, message)."""
+        xdv = root / CFG.outdir / (CFG.stem + ".xdv")
+        if CFG.engine != "xelatex" or not xdv.is_file():
+            return True, ""
+        tmp = "%s/%s.final-tmp.pdf" % (CFG.outdir, CFG.stem)
+        try:
+            r = subprocess.run(CFG.final_pdf(tmp), cwd=str(root), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               stdin=subprocess.DEVNULL, timeout=COMPILE_TIMEOUT, **kw)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return False, "final PDF failed: %s" % e
+        if r.returncode != 0 or not (root / tmp).is_file():
+            return False, "final PDF failed: " + (r.stdout.decode("utf-8", "replace").strip().splitlines() or ["xdvipdfmx"])[-1]
+        if not replace_retry(str(root / tmp), str(root / CFG.pdf_rel)):
+            return False, "final PDF written but the old one is still open: " + tmp
+        return True, ""
+
+    def _once(self, mode=""):
         root = CFG.root
         (root / CFG.outdir).mkdir(exist_ok=True)
         t0 = time.time()
         self.killed = False
         kw = {} if os.name == "nt" else {"start_new_session": True}
-        if clean:                                # "recompile from scratch": latexmk -C first
+        self._note_changes(root)
+        if mode == "clean":                      # "recompile from scratch": latexmk -C first
             try:
                 subprocess.run(CFG.latexmk_clean, cwd=str(root), env=self._env(root), stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=120)
             except (OSError, subprocess.TimeoutExpired):
                 pass
             (root / CFG.outdir).mkdir(exist_ok=True)
+        if CFG.fast_rc:
+            self._write_fast_rc(root)
         try:
             self.proc = subprocess.Popen(CFG.latexmk, cwd=str(root), env=self._env(root), stdout=subprocess.PIPE,
                                          stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **kw)
@@ -1599,9 +1690,21 @@ class Compiler:
         if not errors and rc != 0:
             errors = [{"file": "", "line": 0, "message": (text.strip().splitlines() or ["latexmk failed"])[-1]}]
         pages = parse_pages(text) or parse_pages(logtxt)
+        quality = self.quality
+        if not CFG.fast_rc:
+            quality = "full"
+        elif "Running 'xdvipdfmx" in text:
+            quality = "fast"                     # latexmk rewrote the PDF with the light writer
+        if mode == "final" and rc == 0 and not errors and not self.killed:
+            ok, msg = self._final(root, kw)
+            if ok:
+                quality = "full"
+            else:
+                errors = [{"file": "", "line": 0, "message": msg}]
         with self.lock:
             self.errors = errors
             self.pages = pages
+            self.quality = quality
             self.warnings = count_warnings(logtxt)
             self.log_tail = "\n".join((text or logtxt).splitlines()[-80:])
             self.finished = time.time()
@@ -1628,6 +1731,8 @@ class Compiler:
             return {"state": self.state, "started": self.started, "seconds": round(secs or 0, 1),
                     "pages": self.pages, "errors": self.errors, "warnings_count": self.warnings,
                     "log_tail": self.log_tail, "finished": self.finished, "queued": self.pending,
+                    "mode": self.mode, "quality": self.quality, "changed": self.changed[:CHANGED_SHOW],
+                    "changed_count": len(self.changed),
                     "pdf": (CFG.root / CFG.outdir / (CFG.stem + ".pdf")).is_file()}
 
 
@@ -1848,7 +1953,7 @@ class Handler(BaseHTTPRequestHandler):
         if m == "GET" and path == "/api/history/file":
             return self._send(200, history_file(q.get("path", ""), q.get("ts", "")))
         if m == "POST" and path == "/api/compile":
-            return self._send(200, {"result": COMPILER.request(clean=q.get("clean") == "1" or bool(b.get("clean")))})
+            return self._send(200, {"result": COMPILER.request(clean=q.get("clean") == "1" or bool(b.get("clean")), final=q.get("final") == "1" or bool(b.get("final")))})
         if m == "GET" and path == "/api/compile/status":
             return self._send(200, COMPILER.status())
         if m == "GET" and path == "/api/changes":
@@ -1895,6 +2000,16 @@ class Handler(BaseHTTPRequestHandler):
         raise HttpError(404, "not found")
 
 
+class QuietServer(ThreadingHTTPServer):
+    """A browser that drops a connection mid-request (a closed tab, an aborted PDF or range request) is normal: say nothing."""
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def main(argv=None):
     try:
         cfg, args = load_config(argv)
@@ -1908,7 +2023,7 @@ def main(argv=None):
     if not (cfg.root / cfg.main).is_file():
         print("warning: main file %s not found in %s" % (cfg.main, cfg.root), file=sys.stderr)
     try:
-        srv = ThreadingHTTPServer(("127.0.0.1", cfg.port), Handler)
+        srv = QuietServer(("127.0.0.1", cfg.port), Handler)
     except OSError as e:
         print("error: cannot listen on 127.0.0.1:%d (%s). Is another editor already running? Use --port." % (cfg.port, e),
               file=sys.stderr)
