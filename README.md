@@ -11,8 +11,12 @@ next to the source. The server is a single Python file with no dependencies.
 - **Per-line direction.** Every source line is shown right-to-left or left-to-right depending on its content, so
   `\item متن فارسی` reads RTL while `\begin{equation}` stays LTR. LaTeX command names and the arguments of
   `\label`, `\ref`, `\cite`, `\lr`, `\includegraphics`... do not count when deciding.
-- **Commands stay left-to-right units.** Inside an RTL line every `\command` is isolated, so the backslash never jumps
-  to the wrong end of the word.
+- **Commands stay left-to-right units, and the cursor stays where you type.** Inside an RTL line every `\command`,
+  together with arguments that hold no Persian text, is one left-to-right unit: `\lr{Gemma 4}`, `\cite{key}` and
+  `\ref{fig:a}` read exactly as typed, while `\textbf{متن}` keeps its Persian argument right to left. The units are real
+  CodeMirror bidi isolates, so the editor draws the cursor and moves it with the arrow keys by the same layout the browser
+  shows. (Bilingual editors usually only style these spans, and then the cursor shows a character away from where the
+  text goes, typically next to a brace.)
 - **SyncTeX both ways.** Double-click the PDF to jump to the source line; press `Ctrl+J` to find the cursor line in the PDF.
 - **`latexmk` compile** (XeLaTeX, LuaLaTeX or pdfLaTeX) with a status badge, a clickable error list that opens the
   offending line, and the log tail.
@@ -233,7 +237,7 @@ TeX installation and works only on temporary folders.
 روی همان رایانه ویرایش می‌کند، با `latexmk` کامپایل می‌کند و PDF را کنار متن نشان می‌دهد. سرور فقط یک فایل پایتون است و به
 هیچ بستهٔ اضافه‌ای نیاز ندارد.
 
-- جهت هر خط جدا تشخیص داده می‌شود (فارسی از راست، فرمان‌ها از چپ) و هر `\command` یک واحد چپ‌به‌راست می‌ماند.
+- جهت هر خط جدا تشخیص داده می‌شود (فارسی از راست، فرمان‌ها از چپ). هر `\command` همراه آرگومان‌های لاتینش یک واحد چپ‌به‌راست می‌ماند (`\lr{Gemma 4}` همان‌طور که نوشته شده دیده می‌شود) و مکان‌نما دقیقاً همان‌جایی نشان داده می‌شود که متن تایپ می‌شود.
 - SyncTeX دوطرفه: دوبار کلیک در PDF شما را به خط منبع می‌برد، و `Ctrl+J` خط فعلی را در PDF نشان می‌دهد.
 - تاریخچهٔ ذخیره، تشخیص تعارض هنگام تغییر فایل بیرون از ویرایشگر، فهرست خطاهای کامپایل.
 - عبارت‌های مشکوک با بستهٔ قابل‌افزودن زیر خط کشیده می‌شوند؛ بستهٔ «فارسی ساده» همراه برنامه است.

@@ -1,6 +1,6 @@
 import { EditorState, EditorSelection, StateEffect, StateField, Prec } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection,
-         Decoration, ViewPlugin, MatchDecorator, hoverTooltip } from "@codemirror/view";
+         Decoration, ViewPlugin, MatchDecorator, hoverTooltip, Direction } from "@codemirror/view";
 import { history, historyKeymap, defaultKeymap, indentWithTab } from "@codemirror/commands";
 import { search, searchKeymap, openSearchPanel, highlightSelectionMatches } from "@codemirror/search";
 import { StreamLanguage, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
@@ -336,12 +336,19 @@ const dirPlugin = ViewPlugin.fromClass(class {
     return Decoration.set(out, true);
   }
 }, { decorations: (p) => p.decorations });
-// inside a right-to-left line, keep every \command one left-to-right unit (otherwise the backslash shows at the wrong end)
-const cmdMatcher = new MatchDecorator({ regexp: /\\[A-Za-z@]+\*?/g, decoration: Decoration.mark({ class: "cm-cmd" }) });
+// Inside a right-to-left line, keep every \command (with its Latin arguments, LT.CMD_UNIT) one left-to-right unit, so
+// "\lr{Gemma 4}" reads as typed. The units are real CodeMirror bidi isolates, also given to bidiIsolatedRanges: CodeMirror
+// draws the cursor from its own reading of the line, and without them it put the cursor a character away from where
+// typing goes (just before a "}" after a Latin argument).
+const cmdMatcher = new MatchDecorator({ regexp: new RegExp(LT.CMD_UNIT.source, "g"),
+  decoration: Decoration.mark({ class: "cm-cmd", bidiIsolate: Direction.LTR }) });
 const cmdPlugin = ViewPlugin.fromClass(class {
   constructor(v) { this.decorations = cmdMatcher.createDeco(v); }
   update(u) { this.decorations = cmdMatcher.updateDeco(u, this.decorations); }
-}, { decorations: (p) => p.decorations });
+}, {
+  decorations: (p) => p.decorations,
+  provide: (plugin) => EditorView.bidiIsolatedRanges.of((view) => view.plugin(plugin)?.decorations || Decoration.none),
+});
 
 /* ------------------------------------------------------------------ flash line */
 const flashField = StateField.define({

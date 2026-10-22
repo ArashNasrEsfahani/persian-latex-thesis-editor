@@ -22,9 +22,14 @@ export function lineDir(text) {
   const r = (s.match(RTL_CH) || []).length, l = (s.match(LTR_CH) || []).length;
   return r > 0 && r >= l ? "rtl" : "ltr";
 }
-// pieces of a line with every \command marked, so a viewer can keep each command one left-to-right unit
+// One left-to-right unit inside a right-to-left line: a \command plus the [..] / {..} groups right after it that hold no
+// Persian letters ("\lr{Gemma 4}", "\cite{key}", "\includegraphics[width=0.5\textwidth]{figs/a.png}"). A group with Persian
+// text ("\textbf{متن}") stays outside the unit, so it still reads right to left.
+const NOT_RTL = "[^\\[\\]{}\\n\\u0590-\\u08FF\\uFB1D-\\uFDFF\\uFE70-\\uFEFF]*";
+export const CMD_UNIT = new RegExp("\\\\[A-Za-z@]+\\*?(?:\\[" + NOT_RTL + "\\]|\\{" + NOT_RTL + "\\})*", "g");
+// pieces of a line with every command unit marked, so a viewer can keep each one left-to-right
 export function cmdSegments(text) {
-  const out = [], re = /\\[A-Za-z@]+\*?/g;
+  const out = [], re = new RegExp(CMD_UNIT.source, "g");
   let last = 0, m;
   const s = String(text);
   while ((m = re.exec(s))) {

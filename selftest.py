@@ -661,7 +661,11 @@ eq("wrap plans", [LT.wrapPlan("x \\textbf{", "a", "} y", "\\textbf{", "}"), LT.w
   ["unwrap-outer", "unwrap-inner", "wrap"]);
 eq("bib key", LT.suggestBibKey("Ahn, Michael and others", "2022", "Do As I Can, Not As I Say"), "ahn2022can");
 eq("line direction", [LT.lineDir("\\item ربات باید"), LT.lineDir("\\section{مقدمه}"), LT.lineDir("\\begin{equation}"), LT.lineDir("\\label{fig:x} متن")], ["rtl", "rtl", "ltr", "rtl"]);
-eq("command segments", LT.cmdSegments("a \\lr{b}").map((s) => s.cmd), [false, true, false]);
+eq("command segments", LT.cmdSegments("a \\lr{b}").map((s) => s.cmd), [false, true]);
+eq("command units keep Latin arguments, not Persian ones",
+  LT.cmdSegments("مدل \\lr{Gemma 4} و \\textbf{متن} و \\includegraphics[width=0.9\\linewidth]{figs/a.png} \\\\ \\cite{a,b}{متن} \\lr{\\textbf{X}}")
+    .filter((s) => s.cmd).map((s) => s.text),
+  ["\\lr{Gemma 4}", "\\textbf", "\\includegraphics[width=0.9\\linewidth]{figs/a.png}", "\\cite{a,b}", "\\lr", "\\textbf{X}"]);
 eq("formatBib preview", LT.formatBib({ type: "article", key: "k", title: "T", venue: "J" }), "@article{k,\n  title = {T},\n  journal = {J}\n}");
 console.log(JSON.stringify(out));
 """.replace("__LT_URL__", json.dumps((S.STATIC / "latex-tools.js").as_uri()))
@@ -679,6 +683,8 @@ else:
 
 # ---------------------------------------------------------------- UI strings: English and Persian must have the same keys
 js = (S.STATIC / "app.js").read_text(encoding="utf-8")
+check("command units are CodeMirror bidi isolates, registered for cursor drawing and motion",
+      "bidiIsolate: Direction.LTR" in js and "EditorView.bidiIsolatedRanges.of(" in js and "LT.CMD_UNIT" in js)
 
 
 def keys(lang):
