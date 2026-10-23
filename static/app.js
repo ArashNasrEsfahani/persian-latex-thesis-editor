@@ -529,10 +529,14 @@ async function openFile(name, line, sel) {
   if (!files.has(name)) files.set(name, { name, loaded: false, eol: "" });
   let f = files.get(name);
   if (!f.loaded) { f = await loadFile(name); if (!f) return false; }
-  if (current && current !== f) { current.state = view.state; rememberCursor(current); }
+  // The open file's live text is the view's state; its stored state is only refreshed when switching away. So a
+  // jump inside the open file (a PDF double-click, an outline or search hit) must not reload that stale copy:
+  // doing so silently undid the typing since the last switch.
+  const same = current === f;
+  if (current && !same) { current.state = view.state; rememberCursor(current); }
   hideImage();
   current = f;
-  view.setState(f.state);
+  if (!same) view.setState(f.state);
   store.set("lastFile:" + appTitle, name);
   renderFiles(); updateEditorHead(); renderBanner(); renderStatus(); ctx.renderTree(); ctx.renderOutline();
   if (line) gotoLine(line, sel);

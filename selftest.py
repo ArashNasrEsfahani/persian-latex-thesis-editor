@@ -714,6 +714,8 @@ check("command units are CodeMirror bidi isolates, registered for cursor drawing
       "bidiIsolate: Direction.LTR" in js and "EditorView.bidiIsolatedRanges.of(" in js and "LT.CMD_UNIT" in js)
 check("a file saved outside the editor is merged into unsaved typing, on the disk check and on a refused save",
       js.count("takeDiskVersion(f, ") >= 2 and "LT.merge3(" in js and "f.conflict = { content: d.data.content" not in js)
+check("a jump inside the open file (PDF double-click, outline) keeps the live text instead of reloading a stale copy",
+      "if (!same) view.setState(f.state);" in js and "const same = current === f;" in js)
 
 
 def keys(lang):
