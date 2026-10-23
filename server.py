@@ -42,6 +42,7 @@ DEFAULTS = {
     "root": ".", "main": "main.tex", "port": 8765, "title": "", "engine": "xelatex",
     "order": [], "names": {}, "extensions": [".tex", ".bib"], "outdir": "_live",
     "hints": [], "ui": "en", "uploads": "figs/uploads", "fast_pdf": True, "build_outside": True,
+    "pdf_copy": "",
 }
 # xelatex writes an .xdv in ~3 s even for 120 pages; xdvipdfmx at its default (maximum) compression then needs ~36 s.
 # Everyday compiles write the preview PDF with light compression; "Final PDF" rewrites it at full compression.
@@ -91,9 +92,13 @@ class Config:
         self.base = Path(d.get("_base", self.root))   # where relative hint-pack paths resolve
         self.fast_pdf = bool(d["fast_pdf"])
         self.build_outside = bool(d["build_outside"])   # rebuild when files change outside the editor
+        self.pdf_copy = str(d["pdf_copy"] or "").strip().replace("\\", "/").strip("/")   # also write the PDF here
         self.validate()
 
     def validate(self):
+        if self.pdf_copy and (Path(self.pdf_copy).is_absolute() or ".." in Path(self.pdf_copy).parts
+                              or not self.pdf_copy.lower().endswith(".pdf")):
+            raise ConfigError("pdf_copy must be a .pdf path inside the project, got %r" % (self.pdf_copy,))
         if self.engine not in ENGINES:
             raise ConfigError("engine must be one of %s, got %r" % (", ".join(ENGINES), self.engine))
         if self.ui not in ("en", "fa"):
@@ -1548,6 +1553,8 @@ def source_snapshot(root=None, cfg=None):
     exts = EDITABLE_EXTS | IMAGE_EXTS | {".ttf", ".otf"}
     snap = {}
     for rel, is_dir, st in project_walk(root or cfg.root, cfg):
+        if rel == cfg.pdf_copy:              # the copy of the build output is not a source
+            continue
         if not is_dir and Path(rel).suffix.lower() in exts and not under_underscore(rel):
             snap[rel] = (st.st_mtime_ns, st.st_size)
             if len(snap) >= TREE_MAX:
@@ -1592,6 +1599,7 @@ class Compiler:
         self.snap = None             # source snapshot taken when the last build started
         self.changed = []
         self.quality = None          # "fast" or "full": how the current PDF was written
+        self.copy_error = ""         # "" or why the pdf_copy file was not updated ("locked" = open elsewhere)
 
     def request(self, clean=False, final=False):
         mode = "clean" if clean else ("final" if final else "")
@@ -1659,6 +1667,28 @@ class Compiler:
             return False, "final PDF written but the old one is still open: " + tmp
         return True, ""
 
+    def _copy_pdf(self, root):
+        """Also write the finished PDF to the config's pdf_copy path; returns "" or why it was not updated."""
+        if not CFG.pdf_copy or CFG.pdf_copy == CFG.pdf_rel:
+            return ""
+        src, dest = root / CFG.pdf_rel, root / CFG.pdf_copy
+        if not src.is_file():
+            return ""
+        tmp = dest.with_name(".edit-" + dest.name + ".tmp")
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, tmp)
+        except OSError as e:
+            return str(e)
+        if not replace_retry(str(tmp), str(dest)):
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            return "locked"
+        WATCHER.note_own(dest)
+        return ""
+
     def _once(self, mode=""):
         root = CFG.root
         (root / CFG.outdir).mkdir(exist_ok=True)
@@ -1703,8 +1733,10 @@ class Compiler:
                 quality = "full"
             else:
                 errors = [{"file": "", "line": 0, "message": msg}]
+        copy_error = self._copy_pdf(root) if (rc == 0 and not errors and not self.killed) else ""
         with self.lock:
             self.errors = errors
+            self.copy_error = copy_error
             self.pages = pages
             self.quality = quality
             self.warnings = count_warnings(logtxt)
@@ -1735,6 +1767,7 @@ class Compiler:
                     "log_tail": self.log_tail, "finished": self.finished, "queued": self.pending,
                     "mode": self.mode, "quality": self.quality, "changed": self.changed[:CHANGED_SHOW],
                     "changed_count": len(self.changed),
+                    "pdf_copy": CFG.pdf_copy, "pdf_copy_error": self.copy_error,
                     "pdf": (CFG.root / CFG.outdir / (CFG.stem + ".pdf")).is_file()}
 
     def brief(self):

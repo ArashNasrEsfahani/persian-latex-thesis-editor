@@ -535,6 +535,20 @@ w("figs/p.png", "png")
 snap = S.source_snapshot(proj2)
 check("snapshot covers sources and images", "chapters/ch1.tex" in snap and "figs/p.png" in snap)
 check("snapshot skips _ folders and build output", not any(k.startswith(("_drafts/", "_live/")) for k in snap))
+_old_cfg = S.CFG
+S.set_config(S.Config(root=str(proj2), pdf_copy="main.pdf"))
+(proj2 / "main.pdf").write_bytes(b"%PDF old")
+check("snapshot skips the pdf_copy target", "main.pdf" not in S.source_snapshot(proj2))
+(proj2 / S.CFG.outdir).mkdir(exist_ok=True)
+(proj2 / S.CFG.pdf_rel).write_bytes(b"%PDF new")
+check("a finished build is copied to pdf_copy",
+      S.Compiler()._copy_pdf(proj2) == "" and (proj2 / "main.pdf").read_bytes() == b"%PDF new")
+try:
+    S.Config(pdf_copy="../x.pdf"); _bad = False
+except S.ConfigError:
+    _bad = True
+check("pdf_copy must be a .pdf inside the project", _bad)
+S.set_config(_old_cfg)
 c = S.Compiler()
 c.state, c.started = "running", time.time()
 check("request while running queues", c.request(final=True) == "queued" and c.pending_mode == "final")

@@ -35,6 +35,8 @@ const I18N = {
     mergeClose: "%<<<< end of the outside version",
     mergeNote: (n) => n + (n === "1" ? " place was" : " places were") + " changed both here and outside the editor. Your text is kept; the outside version follows it as comments, between %>>>> and %<<<<.",
     mergeShow: "Show", mergeOk: "OK",
+    pdfCopyLocked: (p) => p + " is open in another program, so it was not updated. Close it and compile again.",
+    pdfCopyFail: (p, m) => p + " was not updated: " + m,
     seconds: (n) => n + " s", pages: (n) => n + (n === "1" ? " page" : " pages"), nErrors: (n) => n + (n === "1" ? " error" : " errors"), noErrors: "no errors",
     line: (n) => "line " + n, noSource: "No source found for this point", lineStale: "Line is from the last compile",
     lineNotFound: "This line was not found in the PDF (compile first)", pageOf: (a, b) => "page " + a + " of " + b,
@@ -124,6 +126,8 @@ const I18N = {
     mergeClose: "%<<<< پایان نسخهٔ بیرونی",
     mergeNote: (n) => "این فایل در " + n + " جا هم اینجا و هم بیرون از ویرایشگر تغییر کرده بود. متن شما مانده است و نسخهٔ بیرونی، به‌صورت توضیح، زیر آن آمده است (میان %>>>> و %<<<<).",
     mergeShow: "نشان بده", mergeOk: "باشد",
+    pdfCopyLocked: (p) => p + " در برنامهٔ دیگری باز است و به‌روز نشد. آن را ببندید و دوباره کامپایل کنید.",
+    pdfCopyFail: (p, m) => p + " به‌روز نشد: " + m,
     seconds: (n) => n + " ثانیه", pages: (n) => n + " صفحه", nErrors: (n) => n + " خطا", noErrors: "بدون خطا",
     line: (n) => "خط " + n, noSource: "منبعی برای این نقطه پیدا نشد", lineStale: "خط بر اساس آخرین کامپایل است",
     lineNotFound: "این خط در PDF پیدا نشد (کامپایل کنید)", pageOf: (a, b) => "صفحهٔ " + a + " از " + b,
@@ -1095,6 +1099,8 @@ function pollCompile() {
     setCompileUI(r.data); renderErrors(r.data);
     if (r.data.state === "running" || r.data.queued) { compTimer = setTimeout(tick, 700); return; }
     compPolling = false; lastBuildSeen = r.data.finished;
+    if (r.data.pdf_copy_error) toast(r.data.pdf_copy_error === "locked" ? tr("pdfCopyLocked", r.data.pdf_copy)
+      : tr("pdfCopyFail", r.data.pdf_copy, r.data.pdf_copy_error));
     if (r.data.state === "error") $("drawer").classList.remove("collapsed");
     if (r.data.state === "ok") $("drawer").classList.add("collapsed");
     if (r.data.pdf !== false) loadPdf();
