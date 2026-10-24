@@ -1,7 +1,7 @@
 @echo off
-rem RTL LaTeX Live Editor launcher.  Usage: start-editor.bat [project folder] [extra server.py options]
+rem Persian LaTeX Thesis Editor launcher.  Usage: start-editor.bat [project folder] [extra server.py options]
 rem With no argument the bundled example project is opened.
-title RTL LaTeX Live Editor
+title Persian LaTeX Thesis Editor
 cd /d "%~dp0"
 set PY=python
 where python >nul 2>nul || set PY=py

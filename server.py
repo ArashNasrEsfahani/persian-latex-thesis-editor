@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RTL LaTeX Live Editor: a local, Overleaf-like editor with first-class right-to-left support.
+"""Persian LaTeX Thesis Editor: a local, Overleaf-like editor with first-class right-to-left support.
 
 Standard library only.  Usage:
 
@@ -157,7 +157,7 @@ CFG = Config()
 
 
 def load_config(argv=None):
-    ap = argparse.ArgumentParser(description="RTL LaTeX Live Editor")
+    ap = argparse.ArgumentParser(description="Persian LaTeX Thesis Editor")
     ap.add_argument("--root", help="LaTeX project folder (default: current folder, or `root` of the config)")
     ap.add_argument("--main", help="main .tex file (default: main.tex)")
     ap.add_argument("--port", type=int, help="port (default: 8765)")
@@ -2126,7 +2126,7 @@ def main(argv=None):
               file=sys.stderr)
         return 1
     url = "http://127.0.0.1:%d" % cfg.port
-    print("RTL LaTeX Live Editor on %s  (root %s, main %s, engine %s)" % (url, cfg.root, cfg.main, cfg.engine), flush=True)
+    print("Persian LaTeX Thesis Editor on %s  (root %s, main %s, engine %s)" % (url, cfg.root, cfg.main, cfg.engine), flush=True)
     WATCHER.start()
     if cfg.build_outside and pdf_is_stale(cfg):
         print("the sources are newer than the PDF: building it now", flush=True)

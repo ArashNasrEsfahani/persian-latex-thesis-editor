@@ -1347,9 +1347,9 @@ async function init() {
   $("chkOnSave").checked = store.get("onSave", "0") === "1";
   $("chkOnSave").onchange = (e) => store.set("onSave", e.target.checked ? "1" : "0");
   const cr = await api("/api/config");
-  const cfg = cr.ok ? cr.data : { title: "RTL LaTeX Live Editor", ui: "en", names: {} };
+  const cfg = cr.ok ? cr.data : { title: "Persian LaTeX Thesis Editor", ui: "en", names: {} };
   NAMES = cfg.names || {};
-  appTitle = cfg.title || "RTL LaTeX Live Editor";
+  appTitle = cfg.title || "Persian LaTeX Thesis Editor";
   mainFile = cfg.main || "main.tex";
   initDialogs(ctx); initTree(ctx); initSearch(ctx);
   applyLang(store.get("lang", cfg.ui || "en"), false);

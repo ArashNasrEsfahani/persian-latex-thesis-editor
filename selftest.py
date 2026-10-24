@@ -1,4 +1,4 @@
-"""Offline selftest for RTL LaTeX Live Editor. Works only on temporary folders; never needs TeX installed."""
+"""Offline selftest for Persian LaTeX Thesis Editor. Works only on temporary folders; never needs TeX installed."""
 import json, re, sys, tempfile, time
 from pathlib import Path
 
@@ -736,7 +736,15 @@ called = set(re.findall(r'\btr\("([A-Za-z0-9]+)"', alljs)) | set(re.findall(r'la
 check("every tr(...) key used by the modules exists (missing: %s)" % sorted(called - en), called <= en)
 for mod in ["latex-tools.js", "icons.js", "complete.js", "tree.js", "dialogs.js", "projsearch.js"]:
     check("module %s exists and is imported" % mod, (S.STATIC / mod).is_file() and ("./" + mod) in alljs)
-check("autocomplete is pinned like the other CodeMirror packages", "@codemirror/autocomplete@6.16.0?deps=@codemirror/state@6.4.1" in html)
+imap = json.loads(re.search(r'<script type="importmap">(.*?)</script>', html, re.S).group(1))["imports"]
+J = "https://cdn.jsdelivr.net/npm/"
+check("every CodeMirror package is pinned to an exact version",
+      all(re.search(r"@\d+\.\d+\.\d+/", v) for k, v in imap.items() if k.startswith("@codemirror/")))
+check("older cores linked by jsdelivr builds resolve to the one copy (state, view, lezer/common, style-mod)",
+      imap.get(J + "@codemirror/state@6.4.0/+esm") == imap["@codemirror/state"]
+      and imap.get(J + "@codemirror/view@6.23.1/+esm") == imap["@codemirror/view"]
+      and imap.get(J + "@lezer/common@1.1.1/+esm") == J + "@lezer/common@1.2.1/+esm"
+      and imap.get(J + "style-mod@4.1.0/+esm") == J + "style-mod@4.1.2/+esm")
 
 print("selftest: %d passed, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)

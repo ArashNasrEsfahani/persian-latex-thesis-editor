@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# RTL LaTeX Live Editor launcher.  Usage: ./start-editor.sh [project folder] [extra server.py options]
+# Persian LaTeX Thesis Editor launcher.  Usage: ./start-editor.sh [project folder] [extra server.py options]
 # With no argument the bundled example project is opened.
 cd "$(dirname "$0")" || exit 1
 PY=python3

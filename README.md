@@ -1,6 +1,7 @@
-# RTL LaTeX Live Editor
+# Persian LaTeX Thesis Editor
 
-A local, Overleaf-like LaTeX editor with first-class **right-to-left (Persian / Arabic / Hebrew)** support.
+A local, Overleaf-like LaTeX editor built for writing a **Persian thesis**, with first-class **right-to-left
+(Persian / Arabic / Hebrew)** support.
 It runs on your own machine, edits the `.tex` files of a project in place, compiles with `latexmk`, and shows the PDF
 next to the source. The server is a single Python file with no dependencies.
 
@@ -96,8 +97,8 @@ next to the source. The server is a single Python file with no dependencies.
 ## Quick start
 
 ```bash
-git clone <this repository>
-cd rtl-latex-live-editor
+git clone https://github.com/ArashNasrEsfahani/persian-latex-thesis-editor.git
+cd persian-latex-thesis-editor
 python server.py --root example --open        # the bundled bilingual example
 ```
 
